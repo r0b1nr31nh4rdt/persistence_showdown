@@ -2,6 +2,9 @@
 
 Red vs. Blue Team Persistence Challenge on Windows VMs.
 
+## Team
+Alex, Jacob, Robin, Stefan
+
 ## Rules
 
 1. Attacker script runs → sets persistence mechanisms
@@ -12,7 +15,7 @@ Red vs. Blue Team Persistence Challenge on Windows VMs.
    - NO → Defender wins
 
 ## Structure
-
+```
 project_7_persistent_showdown/
 ├── attacker/
 │   ├── build.ps1
@@ -32,6 +35,7 @@ project_7_persistent_showdown/
 │   ├── baseline.ps1
 │   └── whitelist.json
 └── README.md
+```
 
 ## Workflow
 

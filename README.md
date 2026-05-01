@@ -59,8 +59,7 @@ The generated `_final.ps1` files are local only – never edit them directly.
 
 ## Submitting your work
 
-Open a Pull Request from your feature branch into `develop`.
-Robin will review and merge. Only Robin merges from `develop` into `main`.
+Open a Pull Request from your feature branch into `develop`. So Robin can review and merge. Please don't merge from `develop` into `main` or direct into main.
 
 ## Notes
 

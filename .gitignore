@@ -1,0 +1,24 @@
+# Generated files – do not commit
+attacker/attacker_final.ps1
+defender/defend_final.ps1
+
+# macOS
+.DS_Store
+**/.DS_Store
+
+# Linux
+*~
+.nfs*
+
+# Windows
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Editor
+.vscode/
+*.code-workspace
+
+# Notepad++
+*.bak
+nppBackup/

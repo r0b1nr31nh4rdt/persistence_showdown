@@ -40,6 +40,30 @@ function Get-ObjectProperty {
     return ConvertTo-BaselineValue $prop.Value
 }
 
+function Get-RawObjectProperty {
+    param($InputObject, [string]$Name, $Default = $null)
+    if ($null -eq $InputObject) { return $Default }
+    $prop = $InputObject.PSObject.Properties[$Name]
+    if ($null -eq $prop) { return $Default }
+    return $prop.Value
+}
+
+function Get-ObjectTypeName {
+    param($InputObject)
+    if ($null -eq $InputObject) { return '' }
+    $cimClass = Get-RawObjectProperty $InputObject 'CimClass' $null
+    if ($null -ne $cimClass) {
+        $cimName = Get-RawObjectProperty $cimClass 'CimClassName' ''
+        if ($cimName) { return [string]$cimName }
+    }
+    try {
+        if ($InputObject.PSObject.TypeNames.Count -gt 0) {
+            return [string]$InputObject.PSObject.TypeNames[0]
+        }
+    } catch {}
+    return [string]$InputObject.GetType().FullName
+}
+
 function Get-RegValues {
     param([string]$Path)
     $out = [ordered]@{}
@@ -153,16 +177,16 @@ function Get-ScheduledTaskBaseline {
             Sort-Object TaskPath, TaskName |
             ForEach-Object {
                 [ordered]@{
-                    TaskPath = $_.TaskPath
-                    TaskName = $_.TaskName
-                    State = [string]$_.State
-                    Author = $_.Author
-                    Description = $_.Description
-                    URI = $_.URI
-                    Hidden = if ($null -ne $_.Settings) { [bool]$_.Settings.Hidden } else { $false }
+                    TaskPath = Get-ObjectProperty $_ 'TaskPath'
+                    TaskName = Get-ObjectProperty $_ 'TaskName'
+                    State = Get-ObjectProperty $_ 'State'
+                    Author = Get-ObjectProperty $_ 'Author'
+                    Description = Get-ObjectProperty $_ 'Description'
+                    URI = Get-ObjectProperty $_ 'URI'
+                    Hidden = if ($null -ne (Get-RawObjectProperty $_ 'Settings' $null)) { [bool](Get-ObjectProperty (Get-RawObjectProperty $_ 'Settings' $null) 'Hidden') } else { $false }
                     Actions = @($_.Actions | ForEach-Object {
                         [ordered]@{
-                            Type = $_.CimClass.CimClassName
+                            Type = Get-ObjectTypeName $_
                             Execute = Get-ObjectProperty $_ 'Execute'
                             Arguments = Get-ObjectProperty $_ 'Arguments'
                             WorkingDirectory = Get-ObjectProperty $_ 'WorkingDirectory'
@@ -172,7 +196,7 @@ function Get-ScheduledTaskBaseline {
                     })
                     Triggers = @($_.Triggers | ForEach-Object {
                         [ordered]@{
-                            Type = $_.CimClass.CimClassName
+                            Type = Get-ObjectTypeName $_
                             Enabled = Get-ObjectProperty $_ 'Enabled'
                             StartBoundary = Get-ObjectProperty $_ 'StartBoundary'
                             EndBoundary = Get-ObjectProperty $_ 'EndBoundary'
@@ -215,7 +239,7 @@ $desktopPaths = @(
     'C:\Users\Public\Desktop'
 ) | Where-Object { $_ }
 $startMenuPaths = @(
-    Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu',
+    (Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu'),
     'C:\ProgramData\Microsoft\Windows\Start Menu'
 )
 $officeVersions = @('12.0', '14.0', '15.0', '16.0')
@@ -245,19 +269,19 @@ $wl['RunOnceWow6432NodeHKCU'] = Get-RegValues 'HKCU:\SOFTWARE\WOW6432Node\Micros
 Write-OK "HKLM/HKCU 32-bit view captured"
 
 Write-Step "Scheduled Tasks"
-$wl['ScheduledTasks'] = Get-ScheduledTaskBaseline
+$wl['ScheduledTasks'] = @(Get-ScheduledTaskBaseline)
 Write-OK "$($wl['ScheduledTasks'].Count) tasks"
 
 Write-Step "Services (Automatic/Manual)"
-$wl['Services'] = Get-ServiceBaseline
+$wl['Services'] = @(Get-ServiceBaseline)
 Write-OK "$($wl['Services'].Count) services"
 
 Write-Step "Startup folder user"
-$wl['StartupUser'] = Get-FileBaseline @($startupUser)
+$wl['StartupUser'] = @(Get-FileBaseline @($startupUser))
 Write-OK "$($wl['StartupUser'].Count) files"
 
 Write-Step "Startup folder public"
-$wl['StartupPublic'] = Get-FileBaseline @($startupPublic)
+$wl['StartupPublic'] = @(Get-FileBaseline @($startupPublic))
 Write-OK "$($wl['StartupPublic'].Count) files"
 
 Write-Step "WMI Subscriptions"
@@ -297,14 +321,16 @@ try {
 
 Write-Step "LSA Security Packages"
 try {
-    $v = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa' -Name 'Security Packages' -ErrorAction SilentlyContinue).'Security Packages'
+    $key = Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa' -Name 'Security Packages' -ErrorAction SilentlyContinue
+    $v = Get-RawObjectProperty $key 'Security Packages' @()
     $wl['LSASecurityPackages'] = @(if ($null -eq $v) { @() } else { $v })
     Write-OK "$($wl['LSASecurityPackages'].Count) packages"
 } catch { Write-Warn $_; $wl['LSASecurityPackages'] = @() }
 
 Write-Step "LSA OSConfig Security Packages"
 try {
-    $v = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\OSConfig' -Name 'Security Packages' -ErrorAction SilentlyContinue).'Security Packages'
+    $key = Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\OSConfig' -Name 'Security Packages' -ErrorAction SilentlyContinue
+    $v = Get-RawObjectProperty $key 'Security Packages' @()
     $wl['LSAOSConfigSecurityPackages'] = @(if ($null -eq $v) { @() } else { $v })
     Write-OK "$($wl['LSAOSConfigSecurityPackages'].Count) packages"
 } catch { Write-Warn $_; $wl['LSAOSConfigSecurityPackages'] = @() }
@@ -368,7 +394,7 @@ $officeStartupPaths = @(
     (Join-Path $env:ProgramFiles 'Microsoft Office\root\Office16\STARTUP'),
     (Join-Path ${env:ProgramFiles(x86)} 'Microsoft Office\root\Office16\STARTUP')
 ) | Where-Object { $_ }
-$wl['OfficeStartupFiles'] = Get-FileBaseline $officeStartupPaths
+$wl['OfficeStartupFiles'] = @(Get-FileBaseline $officeStartupPaths)
 Write-OK "$($wl['OfficeStartupFiles'].Count) files"
 
 Write-Step "Office add-in registry keys"
@@ -404,11 +430,11 @@ $psProfilePaths = @(
     "$env:ProgramFiles\PowerShell\7\profile.ps1",
     "${env:ProgramFiles(x86)}\PowerShell\7\profile.ps1"
 ) | Where-Object { $_ } | Sort-Object -Unique
-$wl['PowerShellProfiles'] = Get-FileBaseline $psProfilePaths
+$wl['PowerShellProfiles'] = @(Get-FileBaseline $psProfilePaths)
 Write-OK "$($wl['PowerShellProfiles'].Count) profile files present"
 
 Write-Step "Shortcut .lnk targets"
-$wl['Shortcuts'] = Get-ShortcutBaseline (@($startupUser, $startupPublic) + $desktopPaths + $startMenuPaths)
+$wl['Shortcuts'] = @(Get-ShortcutBaseline (@($startupUser, $startupPublic) + $desktopPaths + $startMenuPaths))
 Write-OK "$($wl['Shortcuts'].Count) shortcuts"
 
 Write-Step "Active Setup Installed Components"

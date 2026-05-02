@@ -17,7 +17,7 @@ foreach ($regPath in $regLocations) {
 
     try {
         if (-not (Test-Path -Path $regPath)) {
-            Write-Host "  [OK] $label: key not found" -ForegroundColor Green
+            Write-Host "  [OK] ${label}: key not found" -ForegroundColor Green
             continue
         }
 
@@ -26,10 +26,10 @@ foreach ($regPath in $regLocations) {
         try { $dllValue = [string]$props.AppInit_DLLs } catch {}
 
         if ([string]::IsNullOrWhiteSpace($dllValue)) {
-            Write-Host "  [OK] $label: empty" -ForegroundColor Green
+            Write-Host "  [OK] ${label}: empty" -ForegroundColor Green
         } else {
             $findings += "$label contains: '$dllValue'"
-            Write-Host "  [FIND] $label: '$dllValue'" -ForegroundColor Red
+            Write-Host "  [FIND] ${label}: '$dllValue'" -ForegroundColor Red
 
             # Save DLL paths before clearing the value
             $dllPaths = $dllValue -split '[\s,;]+' | Where-Object { $_ -ne "" }
@@ -37,18 +37,18 @@ foreach ($regPath in $regLocations) {
             # Clear the value (do not delete the key)
             try {
                 Set-ItemProperty -Path $regPath -Name "AppInit_DLLs" -Value "" -Force -ErrorAction Stop
-                $actions += "$label: value cleared"
-                Write-Host "  [OK] $label: value cleared" -ForegroundColor Green
+                $actions += "${label}: value cleared"
+                Write-Host "  [OK] ${label}: value cleared" -ForegroundColor Green
             } catch {
-                $actions += "$label: failed to clear value: $_"
-                Write-Host "  [WARN] Error clearing $label: $_" -ForegroundColor Yellow
+                $actions += "${label}: failed to clear value: $_"
+                Write-Host "  [WARN] Error clearing ${label}: $_" -ForegroundColor Yellow
                 $success = $false
             }
 
             # Also disable LoadAppInit_DLLs
             try {
                 Set-ItemProperty -Path $regPath -Name "LoadAppInit_DLLs" -Value 0 -Force -ErrorAction SilentlyContinue
-                $actions += "$label: LoadAppInit_DLLs set to 0"
+                $actions += "${label}: LoadAppInit_DLLs set to 0"
             } catch {}
 
             # Delete referenced DLL files
@@ -68,7 +68,7 @@ foreach ($regPath in $regLocations) {
             }
         }
     } catch {
-        Write-Host "  [WARN] Error checking $label: $_" -ForegroundColor Yellow
+        Write-Host "  [WARN] Error checking ${label}: $_" -ForegroundColor Yellow
         $success = $false
     }
 }

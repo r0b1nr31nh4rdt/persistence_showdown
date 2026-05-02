@@ -1,12 +1,7 @@
 #Requires -RunAsAdministrator
 # Lab-only scheduled task persistence generator for testing defender.ps1.
-# Default: installs several harmless tasks that write C:\Users\Public\Documents\pwned.txt after reboot/logon.
-# Cleanup: powershell.exe -ExecutionPolicy Bypass -File .\scheduled_tasks.ps1 -Cleanup -RemoveProof
-
-param(
-    [switch]$Cleanup,
-    [switch]$RemoveProof
-)
+# Snapshot VM only: this intentionally overwrites existing task definitions.
+# Cleanup is reverting the VMware snapshot.
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -19,40 +14,37 @@ $psExe = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
 $cmdExe = Join-Path $env:WINDIR 'System32\cmd.exe'
 $wscriptExe = Join-Path $env:WINDIR 'System32\wscript.exe'
 
+$newTaskNames = @(
+    'PSUnit-Startup-ProfileCache',
+    'PSUnit-Logon-CloudSync',
+    'PSUnit-Startup-WinUpdateCache'
+)
+
+$existingTaskCandidates = @(
+    [ordered]@{ TaskPath = '\Microsoft\Windows\Application Experience\'; TaskName = 'ProgramDataUpdater' },
+    [ordered]@{ TaskPath = '\Microsoft\Windows\Customer Experience Improvement Program\'; TaskName = 'Consolidator' },
+    [ordered]@{ TaskPath = '\Microsoft\Windows\DiskCleanup\'; TaskName = 'SilentCleanup' },
+    [ordered]@{ TaskPath = '\Microsoft\Windows\Windows Error Reporting\'; TaskName = 'QueueReporting' },
+    [ordered]@{ TaskPath = '\Microsoft\Windows\Maintenance\'; TaskName = 'WinSAT' },
+    [ordered]@{ TaskPath = '\Microsoft\Windows\Maps\'; TaskName = 'MapsUpdateTask' }
+)
+
 function Write-Step { param([string]$Text) Write-Host "[*] $Text" -ForegroundColor Cyan }
 function Write-OK { param([string]$Text) Write-Host "    [OK] $Text" -ForegroundColor Green }
 function Write-Warn { param([string]$Text) Write-Host "    [WARN] $Text" -ForegroundColor Yellow }
 
-function Remove-LabTasks {
-    Write-Step "Removing Persistence Showdown scheduled tasks"
-    try {
-        Get-ScheduledTask -TaskPath $taskPath -ErrorAction SilentlyContinue |
-            Unregister-ScheduledTask -Confirm:$false -ErrorAction SilentlyContinue
-        Write-OK "Removed tasks under $taskPath"
-    } catch {
-        Write-Warn "Task cleanup via ScheduledTasks module failed: $_"
-    }
-
-    foreach ($name in @(
-        'PSUnit-Startup-ProfileCache',
-        'PSUnit-Logon-CloudSync',
-        'PSUnit-Startup-EventBroker',
-        'PSUnit-Startup-WinUpdateCache',
-        'PSUnit-Startup-UserInitBridge'
-    )) {
-        & schtasks.exe /Delete /TN "$taskPath$name" /F 2>$null | Out-Null
-    }
+function Get-TaskIdentity {
+    param([string]$Path, [string]$Name)
+    if (-not $Path.EndsWith('\')) { $Path += '\' }
+    return "$Path$Name"
 }
 
-function Remove-LabFiles {
-    Write-Step "Removing helper files"
-    if (Test-Path -LiteralPath $workDir) {
-        Remove-Item -LiteralPath $workDir -Recurse -Force -ErrorAction SilentlyContinue
-        Write-OK "Removed $workDir"
-    }
-    if ($RemoveProof -and (Test-Path -LiteralPath $payloadPath)) {
-        Remove-Item -LiteralPath $payloadPath -Force -ErrorAction SilentlyContinue
-        Write-OK "Removed $payloadPath"
+function Remove-NewLabTasks {
+    foreach ($name in $newTaskNames) {
+        try {
+            Unregister-ScheduledTask -TaskName $name -TaskPath $taskPath -Confirm:$false -ErrorAction SilentlyContinue
+            & schtasks.exe /Delete /TN "$taskPath$name" /F 2>$null | Out-Null
+        } catch {}
     }
 }
 
@@ -91,6 +83,7 @@ function New-EncodedPayload {
 
 function Register-LabTask {
     param(
+        [string]$Path,
         [string]$Name,
         [string]$Description,
         $Action,
@@ -109,15 +102,22 @@ function Register-LabTask {
     if ($Hidden) { $settingsArgs['Hidden'] = $true }
     $settings = New-ScheduledTaskSettingsSet @settingsArgs
 
-    Register-ScheduledTask -TaskName $Name -TaskPath $taskPath -Action $Action -Trigger $Trigger -Principal $principal -Settings $settings -Description $Description -Force | Out-Null
-    Write-OK "Registered $taskPath$Name"
+    Register-ScheduledTask -TaskName $Name -TaskPath $Path -Action $Action -Trigger $Trigger -Principal $principal -Settings $settings -Description $Description -Force | Out-Null
+    Write-OK "Registered $(Get-TaskIdentity $Path $Name)"
 }
 
-if ($Cleanup) {
-    Remove-LabTasks
-    Remove-LabFiles
-    Write-Host "[DONE] scheduled task unit-test cleanup complete" -ForegroundColor Green
-    exit 0
+function Get-HijackTargets {
+    $targets = @()
+    foreach ($candidate in $existingTaskCandidates) {
+        try {
+            $task = Get-ScheduledTask -TaskPath $candidate.TaskPath -TaskName $candidate.TaskName -ErrorAction Stop
+            if ($null -ne $task) {
+                $targets += $candidate
+                if ($targets.Count -ge 2) { break }
+            }
+        } catch {}
+    }
+    return @($targets)
 }
 
 Write-Step "Preparing scheduled task helper files"
@@ -130,43 +130,68 @@ New-PayloadScript -Path $delayedScript -DelaySeconds 20
 New-PayloadVbs -Path $vbsScript
 Write-OK "Helper files written to $workDir"
 
-Remove-LabTasks
+Write-Step "Removing previous lab-owned new tasks"
+Remove-NewLabTasks
+Write-OK "Removed lab-owned new tasks if present"
 
-Write-Step "Installing scheduled task persistence variants"
+Write-Step "Installing 3 new scheduled task persistence variants"
 $encoded = New-EncodedPayload
 
 Register-LabTask `
+    -Path $taskPath `
     -Name 'PSUnit-Startup-ProfileCache' `
-    -Description 'Lab test: hidden SYSTEM startup task that launches a ProgramData PowerShell helper.' `
+    -Description 'Lab test: new hidden SYSTEM startup task that launches a ProgramData PowerShell helper.' `
     -Action (New-ScheduledTaskAction -Execute $psExe -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$profileCacheScript`"" -WorkingDirectory $workDir) `
     -Trigger (New-ScheduledTaskTrigger -AtStartup) `
     -Hidden
 
 Register-LabTask `
+    -Path $taskPath `
     -Name 'PSUnit-Logon-CloudSync' `
-    -Description 'Lab test: logon task using cmd.exe to write the project proof file.' `
+    -Description 'Lab test: new logon task using cmd.exe to write the project proof file.' `
     -Action (New-ScheduledTaskAction -Execute $cmdExe -Argument "/c echo $payloadText>$payloadPath") `
     -Trigger (New-ScheduledTaskTrigger -AtLogOn)
 
 Register-LabTask `
-    -Name 'PSUnit-Startup-EventBroker' `
-    -Description 'Lab test: startup task using Windows Script Host and a VBS helper.' `
-    -Action (New-ScheduledTaskAction -Execute $wscriptExe -Argument "//B `"$vbsScript`"" -WorkingDirectory $workDir) `
-    -Trigger (New-ScheduledTaskTrigger -AtStartup)
-
-Register-LabTask `
+    -Path $taskPath `
     -Name 'PSUnit-Startup-WinUpdateCache' `
-    -Description 'Lab test: hidden startup task using an encoded PowerShell command.' `
+    -Description 'Lab test: new hidden startup task using an encoded PowerShell command.' `
     -Action (New-ScheduledTaskAction -Execute $psExe -Argument "-NoProfile -ExecutionPolicy Bypass -EncodedCommand $encoded") `
     -Trigger (New-ScheduledTaskTrigger -AtStartup) `
     -Hidden
 
-Register-LabTask `
-    -Name 'PSUnit-Startup-UserInitBridge' `
-    -Description 'Lab test: delayed startup task using a helper script.' `
-    -Action (New-ScheduledTaskAction -Execute $psExe -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$delayedScript`"" -WorkingDirectory $workDir) `
-    -Trigger (New-ScheduledTaskTrigger -AtStartup)
+Write-Step "Overwriting 2 existing scheduled task names"
+$targets = @(Get-HijackTargets)
+if ($targets.Count -lt 2) {
+    Write-Warn "Only found $($targets.Count) existing task candidate(s). The script will overwrite what it found."
+}
+
+$i = 0
+foreach ($target in $targets) {
+    try {
+        if ($i -eq 0) {
+            Register-LabTask `
+                -Path $target.TaskPath `
+                -Name $target.TaskName `
+                -Description 'Lab test: existing Windows task name overwritten with a PowerShell helper action.' `
+                -Action (New-ScheduledTaskAction -Execute $psExe -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$delayedScript`"" -WorkingDirectory $workDir) `
+                -Trigger (New-ScheduledTaskTrigger -AtStartup) `
+                -Hidden
+        } else {
+            Register-LabTask `
+                -Path $target.TaskPath `
+                -Name $target.TaskName `
+                -Description 'Lab test: existing Windows task name overwritten with Windows Script Host action.' `
+                -Action (New-ScheduledTaskAction -Execute $wscriptExe -Argument "//B `"$vbsScript`"" -WorkingDirectory $workDir) `
+                -Trigger (New-ScheduledTaskTrigger -AtStartup)
+        }
+        $i++
+    } catch {
+        Write-Warn "Could not overwrite $(Get-TaskIdentity $target.TaskPath $target.TaskName): $_"
+    }
+}
 
 Write-Host ""
 Write-Host "[DONE] Installed scheduled task unit-test persistences." -ForegroundColor Green
-Write-Host "Reboot or log on again to let any remaining tasks create $payloadPath." -ForegroundColor Yellow
+Write-Host "Created 3 new tasks and attempted to overwrite 2 existing task candidates." -ForegroundColor Yellow
+Write-Host "Revert the VMware snapshot to restore the VM." -ForegroundColor Yellow

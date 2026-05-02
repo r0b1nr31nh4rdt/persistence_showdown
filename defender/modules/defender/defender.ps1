@@ -1,6 +1,6 @@
 #Requires -RunAsAdministrator
-# defender.ps1 - non-interactive persistence cleanup for the Persistence Showdown VM.
-# Default behavior removes suspicious persistence automatically and logs what happened.
+# defender.ps1 - strict name-whitelist cleanup for the Persistence Showdown VM.
+# Loads whitelist.json, removes persistence names that are not present, and logs every action.
 
 param(
     [switch]$DryRun
@@ -17,37 +17,156 @@ $logPath = Join-Path $scriptDir "defender-log-$stamp.json"
 $quarantineRoot = Join-Path $scriptDir "quarantine-$stamp"
 $payloadPath = 'C:\Users\Public\Documents\pwned.txt'
 $payloadContent = 'Pwn3d'
+$recentCutoff = (Get-Date).AddHours(-24)
 
-# Paste the contents of whitelist.json between the markers before submitting this
-# as a single-file defender. If left empty, the script falls back to whitelist.json
-# next to defender.ps1, which is useful while developing.
+# Paste whitelist.json between these markers before submitting as a single-file defender.
+# If this is empty, the script loads whitelist.json from the same directory.
 $EmbeddedBaselineJson = @'
 
 '@
 
+$script:Whitelist = $null
 $script:Findings = @()
-$script:QueuedFiles = @{}
-$script:Baseline = $null
-$script:BaselineAvailable = $false
 
 function Write-Step { param([string]$Text) Write-Host "[*] $Text" -ForegroundColor Cyan }
 function Write-OK { param([string]$Text) Write-Host "    [OK] $Text" -ForegroundColor Green }
 function Write-Warn { param([string]$Text) Write-Host "    [WARN] $Text" -ForegroundColor Yellow }
 function Write-Removed { param([string]$Text) Write-Host "    [REMOVED] $Text" -ForegroundColor Magenta }
 
-function ConvertTo-BaselineValue {
-    param($Value)
-    if ($null -eq $Value) { return '' }
-    if ($Value -is [byte[]]) {
-        return (($Value | ForEach-Object { $_.ToString('X2') }) -join '')
+function Add-Finding {
+    param(
+        [string]$Kind,
+        [string]$Identity,
+        [string]$Location,
+        [string]$Action,
+        [string]$Reason,
+        [string]$Status
+    )
+
+    $script:Findings += [ordered]@{
+        TimeUtc = (Get-Date).ToUniversalTime().ToString('o')
+        Kind = $Kind
+        Identity = $Identity
+        Location = $Location
+        Action = $Action
+        Reason = $Reason
+        Status = $Status
     }
-    if ($Value -is [array]) {
-        return (@($Value | ForEach-Object { ConvertTo-BaselineValue $_ }) -join '|')
-    }
-    return [string]$Value
 }
 
-function Get-PropValue {
+function Get-WhitelistEntries {
+    param([string]$Section)
+    if ($null -eq $script:Whitelist) { return @() }
+    $prop = $script:Whitelist.PSObject.Properties[$Section]
+    if ($null -eq $prop -or $null -eq $prop.Value) { return @() }
+    return @($prop.Value | ForEach-Object { [string]$_ })
+}
+
+function Test-Whitelisted {
+    param([string]$Section, [string]$Identity)
+    return ((Get-WhitelistEntries $Section) -contains $Identity)
+}
+
+function Join-PathIfRoot {
+    param([string]$Root, [string]$Child)
+    if ([string]::IsNullOrWhiteSpace($Root)) { return $null }
+    return Join-Path $Root $Child
+}
+
+function Get-RegValueNames {
+    param([string]$Path)
+    try {
+        if (-not (Test-Path $Path)) { return @() }
+        $props = Get-ItemProperty -Path $Path -ErrorAction Stop
+        return @($props.PSObject.Properties |
+            Where-Object { $_.Name -notmatch '^PS(Path|ParentPath|ChildName|Drive|Provider)$' } |
+            Select-Object -ExpandProperty Name)
+    } catch {
+        Write-Warn "Could not read registry values from '$Path': $_"
+        return @()
+    }
+}
+
+function Get-RegSubKeyItems {
+    param([string[]]$Paths)
+    $items = @()
+    foreach ($path in $Paths) {
+        try {
+            if (Test-Path $path) {
+                $items += @(Get-ChildItem -Path $path -ErrorAction SilentlyContinue | ForEach-Object {
+                    [ordered]@{
+                        Name = $_.PSChildName
+                        Path = "$path\$($_.PSChildName)"
+                        PSPath = $_.PSPath
+                    }
+                })
+            }
+        } catch { Write-Warn "Could not read registry subkeys from '$path': $_" }
+    }
+    return @($items)
+}
+
+function Get-FileItems {
+    param([string[]]$Paths, [string]$Filter = '*', [switch]$Recurse)
+    $items = @()
+    foreach ($path in $Paths) {
+        try {
+            if (Test-Path -LiteralPath $path) {
+                $params = @{
+                    LiteralPath = $path
+                    File = $true
+                    Filter = $Filter
+                    ErrorAction = 'SilentlyContinue'
+                }
+                if ($Recurse) { $params['Recurse'] = $true }
+                $items += @(Get-ChildItem @params)
+            }
+        } catch { Write-Warn "Could not read files from '$path': $_" }
+    }
+    return @($items)
+}
+
+function Get-TaskIdentity {
+    param($Task)
+    $taskPath = [string]$Task.TaskPath
+    if (-not $taskPath.EndsWith('\')) { $taskPath += '\' }
+    return "$taskPath$($Task.TaskName)"
+}
+
+function Get-TaskFilePath {
+    param($Task)
+    $taskPath = [string]$Task.TaskPath
+    $relative = (($taskPath.TrimStart('\').TrimEnd('\') + '\' + $Task.TaskName).TrimStart('\'))
+    return Join-Path (Join-Path $env:WINDIR 'System32\Tasks') $relative
+}
+
+function Get-RecentReason {
+    param([string]$Path)
+    try {
+        if ($Path -and (Test-Path -LiteralPath $Path)) {
+            $item = Get-Item -LiteralPath $Path -ErrorAction Stop
+            if ($item.LastWriteTime -ge $recentCutoff) {
+                return "not in whitelist; timestamp is within the last 24h ($($item.LastWriteTime.ToString('s')))"
+            }
+        }
+    } catch {}
+    return 'not in whitelist'
+}
+
+function Get-ServiceExecutablePath {
+    param([string]$PathName)
+    if ([string]::IsNullOrWhiteSpace($PathName)) { return '' }
+    $expanded = [Environment]::ExpandEnvironmentVariables($PathName.Trim())
+    if ($expanded.StartsWith('"')) {
+        $endQuote = $expanded.IndexOf('"', 1)
+        if ($endQuote -gt 1) { return $expanded.Substring(1, $endQuote - 1) }
+    }
+    $match = [regex]::Match($expanded, '^[A-Za-z]:\\.*?\.exe', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    if ($match.Success) { return $match.Value }
+    return ''
+}
+
+function Get-PropertyValue {
     param($InputObject, [string]$Name, $Default = '')
     if ($null -eq $InputObject) { return $Default }
     $prop = $InputObject.PSObject.Properties[$Name]
@@ -55,542 +174,270 @@ function Get-PropValue {
     return $prop.Value
 }
 
-function ConvertTo-ComparableString {
+function ConvertTo-TextValue {
     param($Value)
     if ($null -eq $Value) { return '' }
-    try { return ($Value | ConvertTo-Json -Depth 20 -Compress) } catch { return [string]$Value }
-}
-
-function Add-Finding {
-    param(
-        [string]$Kind,
-        [string]$Location,
-        [string]$Name,
-        [string]$CommandLine,
-        [int]$Score,
-        [string[]]$Reasons,
-        [string]$Action,
-        [string]$Status
-    )
-
-    $script:Findings += [ordered]@{
-        TimeUtc = (Get-Date).ToUniversalTime().ToString('o')
-        Kind = $Kind
-        Location = $Location
-        Name = $Name
-        CommandLine = $CommandLine
-        Score = $Score
-        Reasons = @($Reasons)
-        Action = $Action
-        Status = $Status
+    if ($Value -is [array]) {
+        return (@($Value | ForEach-Object { ConvertTo-TextValue $_ }) -join ' ')
     }
+    return [string]$Value
 }
 
-function Get-RegValues {
-    param([string]$Path)
-    $out = [ordered]@{}
+function Get-RegValueText {
+    param([string]$Path, [string]$Name)
     try {
-        if (Test-Path $Path) {
-            $props = Get-ItemProperty -Path $Path -ErrorAction Stop
-            $props.PSObject.Properties |
-                Where-Object { $_.Name -notmatch '^PS(Path|ParentPath|ChildName|Drive|Provider)$' } |
-                Sort-Object Name |
-                ForEach-Object { $out[$_.Name] = ConvertTo-BaselineValue $_.Value }
-        }
-    } catch { Write-Warn "Could not read registry values from '$Path': $_" }
-    return $out
+        $key = Get-ItemProperty -Path $Path -Name $Name -ErrorAction SilentlyContinue
+        return ConvertTo-TextValue (Get-PropertyValue $key $Name '')
+    } catch { return '' }
 }
 
-function Get-RegSubKeys {
-    param([string[]]$Paths)
-    $items = @()
-    foreach ($path in $Paths) {
-        try {
-            if (Test-Path $path) {
-                $items += @(Get-ChildItem -Path $path -ErrorAction SilentlyContinue |
-                    Sort-Object PSChildName |
-                    ForEach-Object {
-                        [ordered]@{
-                            Path = "$path\$($_.PSChildName)"
-                            PSPath = $_.PSPath
-                            Name = $_.PSChildName
-                            Values = Get-RegValues $_.PSPath
-                        }
-                    })
-            }
-        } catch { Write-Warn "Could not read registry subkeys from '$path': $_" }
-    }
-    return @($items)
-}
-
-function Get-FileHashSafe {
-    param([string]$Path)
+function Get-RegSubKeyText {
+    param([string]$PSPath)
     try {
-        if (Test-Path -LiteralPath $Path) {
-            return (Get-FileHash -LiteralPath $Path -Algorithm SHA256 -ErrorAction Stop).Hash
-        }
-    } catch {}
-    return ''
+        $props = Get-ItemProperty -Path $PSPath -ErrorAction SilentlyContinue
+        return (@($props.PSObject.Properties |
+            Where-Object { $_.Name -notmatch '^PS(Path|ParentPath|ChildName|Drive|Provider)$' } |
+            ForEach-Object { "$($_.Name)=$(ConvertTo-TextValue $_.Value)" }) -join ' ')
+    } catch { return '' }
 }
 
 function Get-TextPreview {
     param([string]$Path)
     try {
+        if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return '' }
         $item = Get-Item -LiteralPath $Path -ErrorAction Stop
         if ($item.Length -gt 1048576) { return '' }
-        if ($item.Extension -notmatch '^\.(ps1|bat|cmd|vbs|js|jse|wsf|hta|txt)$') { return '' }
+        if ($item.Extension -notmatch '^\.(ps1|bat|cmd|vbs|js|jse|wsf|hta|txt|xml)$') { return '' }
         return (Get-Content -LiteralPath $Path -Raw -ErrorAction Stop)
     } catch { return '' }
 }
 
-function Get-BaselineSection {
-    param([string]$Name)
-    if (-not $script:BaselineAvailable) { return $null }
-    $prop = $script:Baseline.PSObject.Properties[$Name]
-    if ($null -eq $prop) { return $null }
-    return $prop.Value
+function Get-ShortcutText {
+    param([string]$Path)
+    try {
+        $shell = New-Object -ComObject WScript.Shell
+        $shortcut = $shell.CreateShortcut($Path)
+        return "$($shortcut.TargetPath) $($shortcut.Arguments) $($shortcut.WorkingDirectory)"
+    } catch { return '' }
 }
 
-function Get-BaselineRegStatus {
-    param([string]$Section, [string]$Name, [string]$CurrentValue)
-    if (-not $script:BaselineAvailable) { return 'NoBaseline' }
-    $base = Get-BaselineSection $Section
-    if ($null -eq $base) { return 'New' }
-    $prop = $base.PSObject.Properties[$Name]
-    if ($null -eq $prop) { return 'New' }
-    if ([string]$prop.Value -eq [string]$CurrentValue) { return 'Known' }
-    return 'Changed'
+function Get-TaskCommandText {
+    param($Task)
+    try {
+        return (@($Task.Actions | ForEach-Object {
+            '{0} {1} {2}' -f (Get-PropertyValue $_ 'Execute'), (Get-PropertyValue $_ 'Arguments'), (Get-PropertyValue $_ 'WorkingDirectory')
+        }) -join ' ; ')
+    } catch { return '' }
 }
 
-function Get-BaselineFileStatus {
-    param([string]$Section, [string]$FullName, [string]$Hash)
-    if (-not $script:BaselineAvailable) { return 'NoBaseline' }
-    $base = Get-BaselineSection $Section
-    if ($null -eq $base) { return 'New' }
-    foreach ($item in @($base)) {
-        if ([string](Get-PropValue $item 'FullName') -eq $FullName) {
-            if ([string](Get-PropValue $item 'SHA256') -eq $Hash) { return 'Known' }
-            return 'Changed'
-        }
-    }
-    return 'New'
+function Get-WmiObjectText {
+    param($InputObject)
+    try {
+        return (@($InputObject.PSObject.Properties | ForEach-Object {
+            "$($_.Name)=$(ConvertTo-TextValue $_.Value)"
+        }) -join ' ')
+    } catch { return '' }
 }
 
-function Get-BaselineShortcutStatus {
-    param($Shortcut)
-    if (-not $script:BaselineAvailable) { return 'NoBaseline' }
-    $base = Get-BaselineSection 'Shortcuts'
-    if ($null -eq $base) { return 'New' }
-    foreach ($item in @($base)) {
-        if ([string](Get-PropValue $item 'FullName') -eq [string]$Shortcut.FullName) {
-            if ([string](Get-PropValue $item 'TargetPath') -eq [string]$Shortcut.TargetPath -and
-                [string](Get-PropValue $item 'Arguments') -eq [string]$Shortcut.Arguments) {
-                return 'Known'
+function Get-RecentTimestampReason {
+    param([string]$Path)
+    try {
+        if ($Path -and (Test-Path -LiteralPath $Path)) {
+            $item = Get-Item -LiteralPath $Path -ErrorAction Stop
+            if ($item.LastWriteTime -ge $recentCutoff) {
+                return "timestamp is within the last 24h ($($item.LastWriteTime.ToString('s')))"
             }
-            return 'Changed'
         }
-    }
-    return 'New'
+    } catch {}
+    return ''
 }
 
-function Get-BaselineTaskStatus {
-    param($Task, [string]$ActionText)
-    if (-not $script:BaselineAvailable) { return 'NoBaseline' }
-    $base = Get-BaselineSection 'ScheduledTasks'
-    if ($null -eq $base) { return 'New' }
-    foreach ($item in @($base)) {
-        if ([string](Get-PropValue $item 'TaskPath') -eq [string]$Task.TaskPath -and
-            [string](Get-PropValue $item 'TaskName') -eq [string]$Task.TaskName) {
-            $baseActionText = (@(Get-PropValue $item 'Actions' @()) | ForEach-Object {
-                '{0} {1} {2}' -f (Get-PropValue $_ 'Execute'), (Get-PropValue $_ 'Arguments'), (Get-PropValue $_ 'WorkingDirectory')
-            }) -join ' ; '
-            if ($baseActionText -eq $ActionText) { return 'Known' }
-            return 'Changed'
-        }
-    }
-    return 'New'
-}
-
-function Get-BaselineServiceStatus {
-    param($Service)
-    if (-not $script:BaselineAvailable) { return 'NoBaseline' }
-    $base = Get-BaselineSection 'Services'
-    if ($null -eq $base) { return 'New' }
-    foreach ($item in @($base)) {
-        if ([string](Get-PropValue $item 'Name') -eq [string]$Service.Name) {
-            if ([string](Get-PropValue $item 'PathName') -eq [string]$Service.PathName -and
-                [string](Get-PropValue $item 'StartName') -eq [string]$Service.StartName) {
-                return 'Known'
-            }
-            return 'Changed'
-        }
-    }
-    return 'New'
-}
-
-function Get-BaselineSubKeyStatus {
-    param([string]$Section, [string]$Path, $Values)
-    if (-not $script:BaselineAvailable) { return 'NoBaseline' }
-    $base = Get-BaselineSection $Section
-    if ($null -eq $base) { return 'New' }
-    $prop = $base.PSObject.Properties[$Path]
-    if ($null -eq $prop) { return 'New' }
-    if ((ConvertTo-ComparableString $prop.Value) -eq (ConvertTo-ComparableString $Values)) { return 'Known' }
-    return 'Changed'
-}
-
-function Expand-PathText {
-    param([string]$Text)
-    if ([string]::IsNullOrWhiteSpace($Text)) { return '' }
-    return [Environment]::ExpandEnvironmentVariables($Text.Trim('"', "'"))
-}
-
-function Get-ReferencedPaths {
-    param([string]$Text)
-    $expanded = [Environment]::ExpandEnvironmentVariables([string]$Text)
-    $results = @()
-    $patterns = @(
-        '"(?<p>[A-Za-z]:\\[^"]+\.(?:ps1|bat|cmd|vbs|js|jse|wsf|hta|exe|dll|scr))"',
-        '''(?<p>[A-Za-z]:\\[^'']+\.(?:ps1|bat|cmd|vbs|js|jse|wsf|hta|exe|dll|scr))''',
-        '(?<p>[A-Za-z]:\\[^\s"''<>|]+\.(?:ps1|bat|cmd|vbs|js|jse|wsf|hta|exe|dll|scr))'
-    )
-    foreach ($pattern in $patterns) {
-        foreach ($match in [regex]::Matches($expanded, $pattern, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)) {
-            $results += (Expand-PathText $match.Groups['p'].Value)
-        }
-    }
-    return @($results | Where-Object { $_ } | Sort-Object -Unique)
-}
-
-function Test-UserWritablePath {
-    param([string]$Path)
-    $p = (Expand-PathText $Path).ToLowerInvariant()
-    return (
-        $p -match '\\appdata\\' -or
-        $p -match '\\downloads\\' -or
-        $p -match '\\desktop\\' -or
-        $p -match '\\documents\\' -or
-        $p -match '\\users\\public\\' -or
-        $p -match '\\temp\\'
-    )
-}
-
-function Test-ProgramDataPath {
-    param([string]$Path)
-    return ((Expand-PathText $Path).ToLowerInvariant().StartsWith('c:\programdata\'))
-}
-
-function Test-ProtectedPath {
-    param([string]$Path)
-    $p = (Expand-PathText $Path).ToLowerInvariant()
-    $windows = [Environment]::ExpandEnvironmentVariables('%WINDIR%').ToLowerInvariant()
-    $programFiles = [Environment]::GetEnvironmentVariable('ProgramFiles')
-    if ($programFiles) { $programFiles = $programFiles.ToLowerInvariant() } else { $programFiles = '' }
-    $programFilesX86 = ''
-    $programFilesX86Value = [Environment]::GetEnvironmentVariable('ProgramFiles(x86)')
-    if ($programFilesX86Value) { $programFilesX86 = $programFilesX86Value.ToLowerInvariant() }
-    return ($p.StartsWith($windows) -or ($programFiles -and $p.StartsWith($programFiles)) -or ($programFilesX86 -and $p.StartsWith($programFilesX86)))
-}
-
-function Test-InterpreterPath {
-    param([string]$Path)
-    $leaf = Split-Path -Leaf (Expand-PathText $Path)
-    return ($leaf -match '^(powershell|pwsh|cmd|wscript|cscript|mshta|rundll32|regsvr32)\.exe$')
-}
-
-function New-SuspicionAssessment {
-    param(
-        [string]$Name,
-        [string]$CommandLine,
-        [string]$Context,
-        [string]$BaselineStatus,
-        [int]$ExtraScore = 0,
-        [string[]]$ExtraReasons = @()
-    )
+function Get-SuspicionAssessment {
+    param([string]$Identity, [string]$Text = '', [string]$Path = '')
 
     $score = 0
     $reasons = @()
-    $text = "$Name $CommandLine"
+    $haystack = "$Identity $Text $Path"
 
-    if ($BaselineStatus -in @('New', 'Changed')) {
-        $score += 45
-        $reasons += "new or changed compared with clean baseline ($BaselineStatus)"
-    } elseif ($BaselineStatus -eq 'NoBaseline') {
-        $reasons += 'no clean baseline available, using heuristics only'
-    }
-
-    if ($text -match '(?i)pwn3d|pwned\.txt|\\users\\public\\documents\\pwned') {
+    if ($haystack -match '(?i)pwn3d|pwned\.txt|\\users\\public\\documents\\pwned') {
         $score += 100
-        $reasons += 'direct reference to the project payload'
+        $reasons += 'direct project proof-file reference'
     }
-
-    if ($text -match '(?i)\b(powershell|pwsh|cmd|wscript|cscript|mshta|rundll32|regsvr32)\.exe\b') {
+    if ($haystack -match '(?i)(-encodedcommand|\s-enc\s|frombase64string|executionpolicy\s+bypass|windowstyle\s+hidden|invoke-expression|\biex\b)') {
+        $score += 45
+        $reasons += 'obfuscated or bypass-style PowerShell behavior'
+    }
+    if ($haystack -match '(?i)\b(powershell|pwsh|cmd|wscript|cscript|mshta|rundll32|regsvr32)\.exe\b') {
         $score += 25
-        $reasons += 'launches through a common script/interpreter host'
+        $reasons += 'launches through a script/interpreter host'
     }
-
-    if ($text -match '(?i)\.(ps1|bat|cmd|vbs|js|jse|wsf|hta)(\s|$|"|'')') {
+    if ($haystack -match '(?i)\.(ps1|bat|cmd|vbs|js|jse|wsf|hta)(\s|$|"|'')') {
         $score += 20
-        $reasons += 'launches a script file'
+        $reasons += 'references a script file'
     }
-
-    $paths = @(Get-ReferencedPaths $text)
-    $hasUserWritablePath = $false
-    $hasProgramDataPath = $false
-    foreach ($path in $paths) {
-        if (Test-UserWritablePath $path) { $hasUserWritablePath = $true }
-        if (Test-ProgramDataPath $path) { $hasProgramDataPath = $true }
-    }
-    if ($hasUserWritablePath) {
-        $score += 30
+    if ($haystack -match '(?i)\\(appdata|temp|downloads|desktop)\\|\\users\\public\\|\\documents\\') {
+        $score += 20
         $reasons += 'references a user-writable path'
     }
-    if ($hasProgramDataPath) {
-        $score += 15
-        $reasons += 'references ProgramData'
-    }
-
-    if ($Name -match '(?i)(pwn|payload|backdoor|persist|updater|updatecheck|winupdate|securityhealth|onedriveupdate)') {
+    if ($haystack -match '(?i)\\programdata\\') {
         $score += 10
-        $reasons += 'name looks vague, misleading, or persistence-related'
-    }
-
-    if ($Context -match '(?i)Startup|OfficeStartup|PowerShellProfile' -and $text -match '(?i)\.(ps1|bat|cmd|vbs|js|hta)') {
-        $score += 15
-        $reasons += 'script located in an autostart location'
-    }
-
-    if ($ExtraScore -gt 0) {
-        $score += $ExtraScore
-        $reasons += $ExtraReasons
+        $reasons += 'references ProgramData'
     }
 
     return [pscustomobject]@{
         Score = $score
-        Reasons = @($reasons | Where-Object { $_ } | Select-Object -Unique)
-        ReferencedPaths = $paths
-        BaselineStatus = $BaselineStatus
+        Reasons = @($reasons | Select-Object -Unique)
     }
 }
 
-function Test-ShouldClean {
-    param($Assessment)
-    $hasPayloadIndicator = $false
-    foreach ($reason in @($Assessment.Reasons)) {
-        if ($reason -eq 'direct reference to the project payload') { $hasPayloadIndicator = $true }
-    }
-    if ((Get-PropValue $Assessment 'BaselineStatus') -eq 'Known' -and -not $hasPayloadIndicator) { return $false }
-    if ($hasPayloadIndicator) { return $true }
-    if ($Assessment.Score -ge 80) { return $true }
-    return $false
-}
+function Get-CleanupReason {
+    param(
+        [string]$Section,
+        [string]$Identity,
+        [string]$Text = '',
+        [string]$TimestampPath = '',
+        [switch]$RecentCountsForWhitelisted
+    )
 
-function Add-ReferencedFilesForQuarantine {
-    param([string]$CommandLine, [string]$Reason)
-    foreach ($path in @(Get-ReferencedPaths $CommandLine)) {
-        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
-        if (Test-InterpreterPath $path) { continue }
-        if (-not (Test-UserWritablePath $path) -and -not (Test-ProgramDataPath $path)) { continue }
-        if (-not $script:QueuedFiles.ContainsKey($path)) {
-            $script:QueuedFiles[$path] = $Reason
-        }
+    $whitelisted = Test-Whitelisted $Section $Identity
+    $recentReason = Get-RecentTimestampReason $TimestampPath
+    $assessment = Get-SuspicionAssessment -Identity $Identity -Text $Text -Path $TimestampPath
+    $suspicious = ($assessment.Score -ge 40)
+    $parts = @()
+
+    if (-not $whitelisted) {
+        $parts += 'not in whitelist'
+        if ($recentReason) { $parts += $recentReason }
+        if ($assessment.Reasons.Count -gt 0) { $parts += "suspicious: $($assessment.Reasons -join '; ')" }
+        return ($parts -join '; ')
     }
+
+    if ($RecentCountsForWhitelisted -and $recentReason) {
+        $parts += "whitelisted but $recentReason"
+    }
+    if ($suspicious) {
+        $parts += "whitelisted but suspicious: $($assessment.Reasons -join '; ')"
+    }
+
+    return ($parts -join '; ')
 }
 
 function Move-ToQuarantine {
-    param([string]$Path, [string]$Reason, [switch]$AllowProtected)
+    param([System.IO.FileInfo]$File, [string]$Kind, [string]$Section, [string]$Reason = '')
+
+    $reason = if ($Reason) { $Reason } else { Get-RecentReason $File.FullName }
+    $status = if ($DryRun) { 'DryRun' } else { 'Quarantined' }
     try {
-        if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return }
-        $resolved = (Resolve-Path -LiteralPath $Path -ErrorAction Stop).Path
-        if ((Test-ProtectedPath $resolved) -and -not $AllowProtected) {
-            Add-Finding 'File' $resolved (Split-Path -Leaf $resolved) '' 0 @($Reason, 'protected path skipped') 'Skip quarantine' 'Skipped'
-            return
-        }
-        $safeName = (($resolved -replace '[:\\\/\s]+', '_') -replace '[^A-Za-z0-9._-]', '_').Trim('_')
-        if (-not $safeName) { $safeName = [guid]::NewGuid().ToString() }
         if (-not $DryRun) {
             New-Item -ItemType Directory -Path $quarantineRoot -Force | Out-Null
+            $safeName = (($File.FullName -replace '[:\\\/\s]+', '_') -replace '[^A-Za-z0-9._-]', '_').Trim('_')
+            if (-not $safeName) { $safeName = [guid]::NewGuid().ToString('N') }
             $dest = Join-Path $quarantineRoot $safeName
             if (Test-Path -LiteralPath $dest) {
                 $dest = Join-Path $quarantineRoot ("{0}-{1}" -f ([guid]::NewGuid().ToString('N')), $safeName)
             }
-            Move-Item -LiteralPath $resolved -Destination $dest -Force -ErrorAction Stop
+            Move-Item -LiteralPath $File.FullName -Destination $dest -Force -ErrorAction Stop
         }
-        $status = if ($DryRun) { 'DryRun' } else { 'Quarantined' }
-        Add-Finding 'File' $resolved (Split-Path -Leaf $resolved) '' 100 @($Reason) 'Move file to quarantine' $status
-        Write-Removed "$status file: $resolved"
+        Add-Finding $Kind $File.Name $File.FullName 'Move file out of persistence location' $reason $status
+        Write-Removed "$status ${Kind}: $($File.FullName)"
     } catch {
-        Add-Finding 'File' $Path (Split-Path -Leaf $Path) '' 0 @($Reason, "$_") 'Move file to quarantine' 'Failed'
-        Write-Warn "Could not quarantine '$Path': $_"
+        Add-Finding $Kind $File.Name $File.FullName 'Move file out of persistence location' "$reason; error: $_" 'Failed'
+        Write-Warn "Could not quarantine '$($File.FullName)': $_"
     }
 }
 
-function Get-ShortcutInfo {
-    param([string]$Path)
-    $info = [ordered]@{
-        FullName = $Path
-        TargetPath = ''
-        Arguments = ''
-        WorkingDirectory = ''
-        IconLocation = ''
-        WindowStyle = ''
-    }
-    try {
-        $shell = New-Object -ComObject WScript.Shell
-        $lnk = $shell.CreateShortcut($Path)
-        $info.TargetPath = [string]$lnk.TargetPath
-        $info.Arguments = [string]$lnk.Arguments
-        $info.WorkingDirectory = [string]$lnk.WorkingDirectory
-        $info.IconLocation = [string]$lnk.IconLocation
-        $info.WindowStyle = [string]$lnk.WindowStyle
-    } catch { Write-Warn "Could not read shortcut '$Path': $_" }
-    return $info
-}
+function Invoke-RegValueCleanup {
+    param([string]$Kind, [string]$Section, [string]$Path)
 
-function Restore-ShortcutFromBaseline {
-    param([string]$FullName)
-    $base = Get-BaselineSection 'Shortcuts'
-    if ($null -eq $base) { return $false }
-    foreach ($item in @($base)) {
-        if ([string](Get-PropValue $item 'FullName') -eq $FullName) {
-            if (-not $DryRun) {
-                $shell = New-Object -ComObject WScript.Shell
-                $lnk = $shell.CreateShortcut($FullName)
-                $lnk.TargetPath = [string](Get-PropValue $item 'TargetPath')
-                $lnk.Arguments = [string](Get-PropValue $item 'Arguments')
-                $lnk.WorkingDirectory = [string](Get-PropValue $item 'WorkingDirectory')
-                $lnk.IconLocation = [string](Get-PropValue $item 'IconLocation')
-                $windowStyle = [int]([string](Get-PropValue $item 'WindowStyle' '1'))
-                if ($windowStyle -gt 0) { $lnk.WindowStyle = $windowStyle }
-                $lnk.Save()
-            }
-            return $true
-        }
-    }
-    return $false
-}
-
-function Invoke-RegistryValueCleanup {
-    param(
-        [string]$Kind,
-        [string]$Section,
-        [string]$Path,
-        [int]$ExtraScore = 0,
-        [string[]]$ExtraReasons = @()
-    )
-
-    $values = Get-RegValues $Path
-    foreach ($name in @($values.Keys)) {
-        $value = [string]$values[$name]
-        $baselineStatus = Get-BaselineRegStatus $Section $name $value
-        $effectiveExtraScore = if ($baselineStatus -eq 'Known') { 0 } else { $ExtraScore }
-        $effectiveExtraReasons = if ($baselineStatus -eq 'Known') { @() } else { $ExtraReasons }
-        $assessment = New-SuspicionAssessment $name $value $Section $baselineStatus $effectiveExtraScore $effectiveExtraReasons
-        if (-not (Test-ShouldClean $assessment)) { continue }
-
-        $status = 'Removed'
+    foreach ($name in @(Get-RegValueNames $Path)) {
+        $valueText = Get-RegValueText $Path $name
+        $reason = Get-CleanupReason -Section $Section -Identity $name -Text $valueText
+        if (-not $reason) { continue }
+        $status = if ($DryRun) { 'DryRun' } else { 'Removed' }
         try {
             if (-not $DryRun) {
                 Remove-ItemProperty -Path $Path -Name $name -Force -ErrorAction Stop
-            } else {
-                $status = 'DryRun'
             }
-            Add-Finding $Kind $Path $name $value $assessment.Score $assessment.Reasons 'Remove registry value' $status
-            Add-ReferencedFilesForQuarantine $value "$Kind '$name' referenced a suspicious file"
+            Add-Finding $Kind $name $Path 'Remove registry value' $reason $status
             Write-Removed "$status registry value: $Path -> $name"
         } catch {
-            Add-Finding $Kind $Path $name $value $assessment.Score $assessment.Reasons 'Remove registry value' 'Failed'
-            Write-Warn "Could not remove registry value '$Path\$name': $_"
+            Add-Finding $Kind $name $Path 'Remove registry value' "$reason; error: $_" 'Failed'
+            Write-Warn "Could not remove registry value '$Path -> $name': $_"
         }
     }
 }
 
-function Invoke-RegistrySubKeyCleanup {
-    param(
-        [string]$Kind,
-        [string]$Section,
-        [string[]]$Paths,
-        [int]$ExtraScore = 0,
-        [string[]]$ExtraReasons = @()
-    )
+function Invoke-RegSubKeyCleanup {
+    param([string]$Kind, [string]$Section, [string[]]$Paths)
 
-    foreach ($item in @(Get-RegSubKeys $Paths)) {
-        $commandText = (@($item.Values.Keys) | ForEach-Object { "$_=$($item.Values[$_])" }) -join ' '
-        $baselineStatus = Get-BaselineSubKeyStatus $Section $item.Path $item.Values
-        $effectiveExtraScore = if ($baselineStatus -eq 'Known') { 0 } else { $ExtraScore }
-        $effectiveExtraReasons = if ($baselineStatus -eq 'Known') { @() } else { $ExtraReasons }
-        $assessment = New-SuspicionAssessment $item.Name $commandText $Section $baselineStatus $effectiveExtraScore $effectiveExtraReasons
-        if (-not (Test-ShouldClean $assessment)) { continue }
-
-        $status = 'Removed'
+    foreach ($item in @(Get-RegSubKeyItems $Paths)) {
+        $keyText = Get-RegSubKeyText $item.PSPath
+        $reason = Get-CleanupReason -Section $Section -Identity $item.Name -Text $keyText
+        if (-not $reason) { continue }
+        $status = if ($DryRun) { 'DryRun' } else { 'Removed' }
         try {
             if (-not $DryRun) {
                 Remove-Item -Path $item.PSPath -Recurse -Force -ErrorAction Stop
-            } else {
-                $status = 'DryRun'
             }
-            Add-Finding $Kind $item.Path $item.Name $commandText $assessment.Score $assessment.Reasons 'Remove registry key' $status
-            Add-ReferencedFilesForQuarantine $commandText "$Kind '$($item.Name)' referenced a suspicious file"
+            Add-Finding $Kind $item.Name $item.Path 'Remove registry key' $reason $status
             Write-Removed "$status registry key: $($item.Path)"
         } catch {
-            Add-Finding $Kind $item.Path $item.Name $commandText $assessment.Score $assessment.Reasons 'Remove registry key' 'Failed'
+            Add-Finding $Kind $item.Name $item.Path 'Remove registry key' "$reason; error: $_" 'Failed'
             Write-Warn "Could not remove registry key '$($item.Path)': $_"
         }
     }
 }
 
-function Invoke-StartupFolderCleanup {
-    param([string]$Section, [string]$Path)
-    if (-not (Test-Path -LiteralPath $Path)) { return }
-    Get-ChildItem -LiteralPath $Path -File -ErrorAction SilentlyContinue | Sort-Object FullName | ForEach-Object {
-        $hash = Get-FileHashSafe $_.FullName
-        $baselineStatus = Get-BaselineFileStatus $Section $_.FullName $hash
-        $commandText = $_.FullName
-        if ($_.Extension -ieq '.lnk') {
-            $shortcut = Get-ShortcutInfo $_.FullName
-            $commandText = "$($shortcut.TargetPath) $($shortcut.Arguments)"
-        } else {
-            $commandText = "$($_.FullName) $(Get-TextPreview $_.FullName)"
-        }
-        $assessment = New-SuspicionAssessment $_.Name $commandText 'Startup' $baselineStatus 10 @('file is in a Startup folder')
-        if (-not (Test-ShouldClean $assessment)) { return }
+function Invoke-FileCleanup {
+    param([string]$Kind, [string]$Section, [string[]]$Paths, [string]$Filter = '*', [switch]$Recurse)
 
-        Move-ToQuarantine $_.FullName "suspicious Startup folder item: $($_.Name)"
-        Add-ReferencedFilesForQuarantine $commandText "Startup item '$($_.Name)' referenced a suspicious file"
+    foreach ($file in @(Get-FileItems -Paths $Paths -Filter $Filter -Recurse:$Recurse)) {
+        $text = $file.FullName
+        if ($file.Extension -ieq '.lnk') {
+            $text = "$text $(Get-ShortcutText $file.FullName)"
+        } else {
+            $text = "$text $(Get-TextPreview $file.FullName)"
+        }
+        $reason = Get-CleanupReason -Section $Section -Identity $file.Name -Text $text -TimestampPath $file.FullName -RecentCountsForWhitelisted
+        if (-not $reason) { continue }
+        Move-ToQuarantine -File $file -Kind $Kind -Section $Section -Reason $reason
+    }
+}
+
+function Invoke-ProfileCleanup {
+    param([string[]]$Paths)
+
+    foreach ($path in @($Paths | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) })) {
+        $text = "$path $(Get-TextPreview $path)"
+        $reason = Get-CleanupReason -Section 'PowerShellProfiles' -Identity $path -Text $text -TimestampPath $path -RecentCountsForWhitelisted
+        if (-not $reason) { continue }
+        try {
+            $file = Get-Item -LiteralPath $path -ErrorAction Stop
+            Move-ToQuarantine -File $file -Kind 'PowerShellProfile' -Section 'PowerShellProfiles' -Reason $reason
+        } catch {
+            Add-Finding 'PowerShellProfile' $path $path 'Move file out of persistence location' "$reason; error: $_" 'Failed'
+        }
     }
 }
 
 function Invoke-ScheduledTaskCleanup {
     try {
         Get-ScheduledTask -ErrorAction SilentlyContinue | Sort-Object TaskPath, TaskName | ForEach-Object {
-            $task = $_
-            $actionText = (@($task.Actions) | ForEach-Object {
-                '{0} {1} {2}' -f (Get-PropValue $_ 'Execute'), (Get-PropValue $_ 'Arguments'), (Get-PropValue $_ 'WorkingDirectory')
-            }) -join ' ; '
-            $hidden = [bool](Get-PropValue (Get-PropValue $task 'Settings' $null) 'Hidden' $false)
-            $baselineStatus = Get-BaselineTaskStatus $task $actionText
-            $extraScore = 0
-            $extraReasons = @()
-            if ($hidden -and $baselineStatus -ne 'Known') {
-                $extraScore += 15
-                $extraReasons += 'task is hidden'
-            }
-            $assessment = New-SuspicionAssessment $task.TaskName $actionText 'ScheduledTask' $baselineStatus $extraScore $extraReasons
-            if (-not (Test-ShouldClean $assessment)) { return }
-
-            $status = 'Removed'
+            $identity = Get-TaskIdentity $_
+            $taskFile = Get-TaskFilePath $_
+            $taskText = "$(Get-TaskCommandText $_) $(Get-TextPreview $taskFile)"
+            $reason = Get-CleanupReason -Section 'ScheduledTasks' -Identity $identity -Text $taskText -TimestampPath $taskFile -RecentCountsForWhitelisted
+            if (-not $reason) { return }
+            $status = if ($DryRun) { 'DryRun' } else { 'Removed' }
             try {
                 if (-not $DryRun) {
-                    Unregister-ScheduledTask -TaskName $task.TaskName -TaskPath $task.TaskPath -Confirm:$false -ErrorAction Stop
-                } else {
-                    $status = 'DryRun'
+                    Unregister-ScheduledTask -TaskName $_.TaskName -TaskPath $_.TaskPath -Confirm:$false -ErrorAction Stop
                 }
-                Add-Finding 'ScheduledTask' $task.TaskPath $task.TaskName $actionText $assessment.Score $assessment.Reasons 'Unregister scheduled task' $status
-                Add-ReferencedFilesForQuarantine $actionText "scheduled task '$($task.TaskName)' referenced a suspicious file"
-                Write-Removed "$status scheduled task: $($task.TaskPath)$($task.TaskName)"
+                Add-Finding 'ScheduledTask' $identity $_.TaskPath 'Unregister scheduled task' $reason $status
+                Write-Removed "$status scheduled task: $identity"
             } catch {
-                Add-Finding 'ScheduledTask' $task.TaskPath $task.TaskName $actionText $assessment.Score $assessment.Reasons 'Unregister scheduled task' 'Failed'
-                Write-Warn "Could not remove scheduled task '$($task.TaskPath)$($task.TaskName)': $_"
+                Add-Finding 'ScheduledTask' $identity $_.TaskPath 'Unregister scheduled task' "$reason; error: $_" 'Failed'
+                Write-Warn "Could not remove scheduled task '$identity': $_"
             }
         }
     } catch { Write-Warn "Could not enumerate scheduled tasks: $_" }
@@ -602,166 +449,201 @@ function Invoke-ServiceCleanup {
             Where-Object { $_.StartMode -in @('Auto', 'Manual') } |
             Sort-Object Name |
             ForEach-Object {
-                $svc = $_
-                $baselineStatus = Get-BaselineServiceStatus $svc
-                $assessment = New-SuspicionAssessment $svc.Name $svc.PathName 'Service' $baselineStatus 0 @()
-                if (-not (Test-ShouldClean $assessment)) { return }
-
-                $action = if ($baselineStatus -eq 'Changed') { 'Disable suspicious service' } else { 'Delete suspicious service' }
+                $exePath = Get-ServiceExecutablePath $_.PathName
+                $reason = Get-CleanupReason -Section 'Services' -Identity $_.Name -Text $_.PathName -TimestampPath $exePath
+                if (-not $reason) { return }
                 $status = if ($DryRun) { 'DryRun' } else { 'Removed' }
                 try {
                     if (-not $DryRun) {
-                        Stop-Service -Name $svc.Name -Force -ErrorAction SilentlyContinue
-                        if ($baselineStatus -eq 'Changed') {
-                            Set-Service -Name $svc.Name -StartupType Disabled -ErrorAction Stop
-                        } else {
-                            & sc.exe delete $svc.Name | Out-Null
-                        }
+                        Stop-Service -Name $_.Name -Force -ErrorAction SilentlyContinue
+                        & sc.exe delete $_.Name | Out-Null
                     }
-                    Add-Finding 'Service' 'Win32_Service' $svc.Name $svc.PathName $assessment.Score $assessment.Reasons $action $status
-                    Add-ReferencedFilesForQuarantine $svc.PathName "service '$($svc.Name)' referenced a suspicious file"
-                    Write-Removed "$status service: $($svc.Name)"
+                    Add-Finding 'Service' $_.Name $_.PathName 'Stop and delete service' $reason $status
+                    Write-Removed "$status service: $($_.Name)"
                 } catch {
-                    Add-Finding 'Service' 'Win32_Service' $svc.Name $svc.PathName $assessment.Score $assessment.Reasons $action 'Failed'
-                    Write-Warn "Could not clean service '$($svc.Name)': $_"
+                    Add-Finding 'Service' $_.Name $_.PathName 'Stop and delete service' "$reason; error: $_" 'Failed'
+                    Write-Warn "Could not remove service '$($_.Name)': $_"
                 }
             }
     } catch { Write-Warn "Could not enumerate services: $_" }
 }
 
-function Invoke-OfficeStartupCleanup {
-    $paths = @(
-        (Join-Path $env:APPDATA 'Microsoft\Word\STARTUP'),
-        (Join-Path $env:APPDATA 'Microsoft\Excel\XLSTART'),
-        (Join-Path $env:ProgramFiles 'Microsoft Office\root\Office16\STARTUP'),
-        (Join-Path ${env:ProgramFiles(x86)} 'Microsoft Office\root\Office16\STARTUP')
-    ) | Where-Object { $_ }
-
-    foreach ($path in $paths) {
-        if (-not (Test-Path -LiteralPath $path)) { continue }
-        Get-ChildItem -LiteralPath $path -File -ErrorAction SilentlyContinue | Sort-Object FullName | ForEach-Object {
-            $hash = Get-FileHashSafe $_.FullName
-            $baselineStatus = Get-BaselineFileStatus 'OfficeStartupFiles' $_.FullName $hash
-            $commandText = "$($_.FullName) $(Get-TextPreview $_.FullName)"
-            $assessment = New-SuspicionAssessment $_.Name $commandText 'OfficeStartup' $baselineStatus 15 @('file is in an Office Startup folder')
-            if (Test-ShouldClean $assessment) {
-                Move-ToQuarantine $_.FullName "suspicious Office Startup file: $($_.Name)"
-            }
-        }
-    }
-}
-
-function Invoke-PowerShellProfileCleanup {
-    $paths = @(
-        "$PSHOME\profile.ps1",
-        "$PSHOME\Microsoft.PowerShell_profile.ps1",
-        (Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'WindowsPowerShell\profile.ps1'),
-        (Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'WindowsPowerShell\Microsoft.PowerShell_profile.ps1'),
-        (Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'PowerShell\profile.ps1'),
-        (Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'PowerShell\Microsoft.PowerShell_profile.ps1'),
-        "$env:ProgramFiles\PowerShell\7\profile.ps1",
-        "${env:ProgramFiles(x86)}\PowerShell\7\profile.ps1"
-    ) | Where-Object { $_ } | Sort-Object -Unique
-
-    foreach ($path in $paths) {
-        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
-        $hash = Get-FileHashSafe $path
-        $baselineStatus = Get-BaselineFileStatus 'PowerShellProfiles' $path $hash
-        $content = Get-TextPreview $path
-        $assessment = New-SuspicionAssessment (Split-Path -Leaf $path) "$path $content" 'PowerShellProfile' $baselineStatus 0 @()
-        if (Test-ShouldClean $assessment) {
-            $allowProtected = ($content -match '(?i)pwn3d|pwned\.txt|\\users\\public\\documents\\pwned')
-            Move-ToQuarantine $path 'suspicious PowerShell profile' -AllowProtected:$allowProtected
-        }
-    }
-}
-
-function Invoke-ShortcutCleanup {
-    $desktopPaths = @(
-        [Environment]::GetFolderPath('Desktop'),
-        'C:\Users\Public\Desktop'
-    ) | Where-Object { $_ }
-    $startMenuPaths = @(
-        (Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu'),
-        'C:\ProgramData\Microsoft\Windows\Start Menu'
-    )
-
-    foreach ($root in @($desktopPaths + $startMenuPaths)) {
-        if (-not (Test-Path -LiteralPath $root)) { continue }
-        Get-ChildItem -LiteralPath $root -Filter '*.lnk' -File -Recurse -ErrorAction SilentlyContinue | Sort-Object FullName | ForEach-Object {
-            $shortcut = Get-ShortcutInfo $_.FullName
-            $baselineStatus = Get-BaselineShortcutStatus $shortcut
-            $commandText = "$($shortcut.TargetPath) $($shortcut.Arguments)"
-            $assessment = New-SuspicionAssessment $_.Name $commandText 'Shortcut' $baselineStatus 0 @()
-            if (-not (Test-ShouldClean $assessment)) { return }
-
-            if ($baselineStatus -eq 'Changed' -and (Restore-ShortcutFromBaseline $_.FullName)) {
-                Add-Finding 'Shortcut' $_.FullName $_.Name $commandText $assessment.Score $assessment.Reasons 'Restore shortcut from baseline' $(if ($DryRun) { 'DryRun' } else { 'Restored' })
-                Write-Removed "Restored shortcut from baseline: $($_.FullName)"
-            } else {
-                Move-ToQuarantine $_.FullName "suspicious shortcut: $($_.Name)"
-            }
-            Add-ReferencedFilesForQuarantine $commandText "shortcut '$($_.Name)' referenced a suspicious file"
-        }
-    }
-}
-
-Write-Step "Loading clean baseline"
-if (-not [string]::IsNullOrWhiteSpace($EmbeddedBaselineJson)) {
+function Invoke-WmiBindingCleanup {
     try {
-        $script:Baseline = $EmbeddedBaselineJson | ConvertFrom-Json -ErrorAction Stop
-        $script:BaselineAvailable = $true
-        Write-OK 'Loaded embedded baseline'
+        Get-WmiObject -Namespace root\subscription -Class __FilterToConsumerBinding -ErrorAction SilentlyContinue | ForEach-Object {
+            $identity = "$($_.Filter) -> $($_.Consumer)"
+            $text = Get-WmiObjectText $_
+            $reason = Get-CleanupReason -Section 'WMIBindings' -Identity $identity -Text $text
+            if (-not $reason) { return }
+            $status = if ($DryRun) { 'DryRun' } else { 'Removed' }
+            try {
+                if (-not $DryRun) { $_ | Remove-WmiObject -ErrorAction Stop }
+                Add-Finding 'WMIBinding' $identity 'root\subscription' 'Remove WMI binding' $reason $status
+                Write-Removed "$status WMI binding: $identity"
+            } catch {
+                Add-Finding 'WMIBinding' $identity 'root\subscription' 'Remove WMI binding' "$reason; error: $_" 'Failed'
+            }
+        }
+    } catch { Write-Warn "Could not enumerate WMI bindings: $_" }
+}
+
+function Invoke-WmiNamedCleanup {
+    param([string]$Kind, [string]$Section, [string]$ClassName)
+
+    try {
+        Get-WmiObject -Namespace root\subscription -Class $ClassName -ErrorAction SilentlyContinue | ForEach-Object {
+            $text = Get-WmiObjectText $_
+            $reason = Get-CleanupReason -Section $Section -Identity $_.Name -Text $text
+            if (-not $reason) { return }
+            $status = if ($DryRun) { 'DryRun' } else { 'Removed' }
+            try {
+                if (-not $DryRun) { $_ | Remove-WmiObject -ErrorAction Stop }
+                Add-Finding $Kind $_.Name 'root\subscription' "Remove $Kind" $reason $status
+                Write-Removed "$status ${Kind}: $($_.Name)"
+            } catch {
+                Add-Finding $Kind $_.Name 'root\subscription' "Remove $Kind" "$reason; error: $_" 'Failed'
+            }
+        }
+    } catch { Write-Warn "Could not enumerate ${Kind}: $_" }
+}
+
+function Invoke-SingleRegValueMarkerCleanup {
+    param([string]$Kind, [string]$Section, [string]$Path, [string]$ValueName)
+
+    try {
+        $key = Get-ItemProperty -Path $Path -Name $ValueName -ErrorAction SilentlyContinue
+        if ($null -eq $key) { return }
+        $prop = $key.PSObject.Properties[$ValueName]
+        if ($null -eq $prop -or $null -eq $prop.Value -or [string]::IsNullOrWhiteSpace([string]$prop.Value)) { return }
+        $reason = Get-CleanupReason -Section $Section -Identity $ValueName -Text (ConvertTo-TextValue $prop.Value)
+        if (-not $reason) { return }
+
+        $status = if ($DryRun) { 'DryRun' } else { 'Removed' }
+        if (-not $DryRun) {
+            Remove-ItemProperty -Path $Path -Name $ValueName -Force -ErrorAction Stop
+        }
+        Add-Finding $Kind $ValueName $Path 'Remove registry value' $reason $status
+        Write-Removed "$status registry value: $Path -> $ValueName"
     } catch {
-        Write-Warn "Could not load embedded baseline. Continuing with heuristics only: $_"
+        Add-Finding $Kind $ValueName $Path 'Remove registry value' "error: $_" 'Failed'
     }
-} elseif (Test-Path -LiteralPath $baselinePath) {
+}
+
+function Invoke-MultiStringCleanup {
+    param([string]$Kind, [string]$Section, [string]$Path, [string]$ValueName)
+
     try {
-        $script:Baseline = Get-Content -LiteralPath $baselinePath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
-        $script:BaselineAvailable = $true
+        $key = Get-ItemProperty -Path $Path -Name $ValueName -ErrorAction SilentlyContinue
+        if ($null -eq $key) { return }
+        $prop = $key.PSObject.Properties[$ValueName]
+        if ($null -eq $prop -or $null -eq $prop.Value) { return }
+        $current = @($prop.Value | ForEach-Object { [string]$_ })
+        $allowed = Get-WhitelistEntries $Section
+        $extra = @($current | Where-Object { $allowed -notcontains $_ })
+        if ($extra.Count -eq 0) { return }
+
+        $status = if ($DryRun) { 'DryRun' } else { 'Removed' }
+        if (-not $DryRun) {
+            Set-ItemProperty -Path $Path -Name $ValueName -Value ([string[]]@($current | Where-Object { $allowed -contains $_ })) -ErrorAction Stop
+        }
+        Add-Finding $Kind ($extra -join ', ') $Path "Remove unlisted entries from $ValueName" 'not in whitelist' $status
+        Write-Removed "$status ${Kind}: $($extra -join ', ')"
+    } catch {
+        Add-Finding $Kind $ValueName $Path "Remove unlisted entries from $ValueName" "not in whitelist; error: $_" 'Failed'
+    }
+}
+
+function Invoke-ScalarValueCleanup {
+    param([string]$Kind, [string]$Section, [string]$Path, [string]$ValueName, [string[]]$DefaultValue = @())
+
+    try {
+        $key = Get-ItemProperty -Path $Path -Name $ValueName -ErrorAction SilentlyContinue
+        if ($null -eq $key) { return }
+        $prop = $key.PSObject.Properties[$ValueName]
+        if ($null -eq $prop -or $null -eq $prop.Value) { return }
+        $current = @($prop.Value | ForEach-Object { [string]$_ })
+        $allowed = Get-WhitelistEntries $Section
+        $extra = @($current | Where-Object { $allowed -notcontains $_ })
+        if ($extra.Count -eq 0) { return }
+
+        $replacement = if ($allowed.Count -gt 0) { $allowed } else { $DefaultValue }
+        $status = if ($DryRun) { 'DryRun' } else { 'Reverted' }
+        if (-not $DryRun) {
+            Set-ItemProperty -Path $Path -Name $ValueName -Value ([string[]]$replacement) -ErrorAction Stop
+        }
+        Add-Finding $Kind ($extra -join ', ') $Path "Revert $ValueName to whitelist" 'not in whitelist' $status
+        Write-Removed "$status ${Kind}: $ValueName"
+    } catch {
+        Add-Finding $Kind $ValueName $Path "Revert $ValueName to whitelist" "not in whitelist; error: $_" 'Failed'
+    }
+}
+
+function Invoke-WinlogonCleanup {
+    try {
+        $path = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'
+        $key = Get-ItemProperty $path -ErrorAction SilentlyContinue
+        foreach ($name in @('Userinit', 'Shell')) {
+            $prop = $key.PSObject.Properties[$name]
+            if ($null -eq $prop) { continue }
+            $identity = "$name=$($prop.Value)"
+            if (Test-Whitelisted 'Winlogon' $identity) { continue }
+            $allowed = @(Get-WhitelistEntries 'Winlogon' | Where-Object { $_ -like "$name=*" })
+            if ($allowed.Count -eq 0) { continue }
+            $replacement = $allowed[0].Substring(("$name=").Length)
+            $status = if ($DryRun) { 'DryRun' } else { 'Reverted' }
+            if (-not $DryRun) {
+                Set-ItemProperty -Path $path -Name $name -Value $replacement -ErrorAction Stop
+            }
+            Add-Finding 'Winlogon' $identity $path "Revert $name to whitelist" 'not in whitelist' $status
+            Write-Removed "$status Winlogon value: $name"
+        }
+    } catch {
+        Add-Finding 'Winlogon' 'Winlogon' 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon' 'Revert Winlogon values' "error: $_" 'Failed'
+    }
+}
+
+Write-Step "Loading whitelist"
+try {
+    if (-not [string]::IsNullOrWhiteSpace($EmbeddedBaselineJson)) {
+        $script:Whitelist = $EmbeddedBaselineJson | ConvertFrom-Json -ErrorAction Stop
+        Write-OK 'Loaded embedded whitelist'
+    } elseif (Test-Path -LiteralPath $baselinePath) {
+        $script:Whitelist = Get-Content -LiteralPath $baselinePath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
         Write-OK "Loaded $baselinePath"
-    } catch {
-        Write-Warn "Could not load whitelist.json. Continuing with heuristics only: $_"
+    } else {
+        throw "No embedded baseline and no whitelist.json at $baselinePath"
     }
-} else {
-    Write-Warn "No whitelist.json found. Continuing with heuristics only."
+} catch {
+    Write-Host "[ERROR] Could not load whitelist. Refusing to run strict cleanup: $_" -ForegroundColor Red
+    exit 2
 }
 
-Write-Step "Checking registry Run and RunOnce keys"
-$runLocations = @(
-    [ordered]@{ Kind = 'RegistryRun'; Section = 'RunHKLM'; Path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run' },
-    [ordered]@{ Kind = 'RegistryRun'; Section = 'RunHKCU'; Path = 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run' },
-    [ordered]@{ Kind = 'RegistryRunOnce'; Section = 'RunOnceHKLM'; Path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce' },
-    [ordered]@{ Kind = 'RegistryRunOnce'; Section = 'RunOnceHKCU'; Path = 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce' },
-    [ordered]@{ Kind = 'RegistryRunWow6432Node'; Section = 'RunWow6432NodeHKLM'; Path = 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Run' },
-    [ordered]@{ Kind = 'RegistryRunOnceWow6432Node'; Section = 'RunOnceWow6432NodeHKLM'; Path = 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\RunOnce' },
-    [ordered]@{ Kind = 'RegistryRunWow6432Node'; Section = 'RunWow6432NodeHKCU'; Path = 'HKCU:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Run' },
-    [ordered]@{ Kind = 'RegistryRunOnceWow6432Node'; Section = 'RunOnceWow6432NodeHKCU'; Path = 'HKCU:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\RunOnce' }
-)
-foreach ($loc in $runLocations) {
-    Invoke-RegistryValueCleanup $loc.Kind $loc.Section $loc.Path
-}
-
-Write-Step "Checking Startup folders"
 $startupUser = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Startup'
 $startupPublic = 'C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup'
-Invoke-StartupFolderCleanup 'StartupUser' $startupUser
-Invoke-StartupFolderCleanup 'StartupPublic' $startupPublic
-
-Write-Step "Checking scheduled tasks"
-Invoke-ScheduledTaskCleanup
-
-Write-Step "Checking Windows services"
-Invoke-ServiceCleanup
-
-Write-Step "Checking Microsoft Edge forced extension policy"
-Invoke-RegistryValueCleanup 'EdgePolicy' 'EdgeExtensionInstallForcelistHKLM' 'HKLM:\Software\Policies\Microsoft\Edge\ExtensionInstallForcelist' 80 @('forced Edge extension policy not in clean baseline')
-Invoke-RegistryValueCleanup 'EdgePolicy' 'EdgeExtensionInstallForcelistHKCU' 'HKCU:\Software\Policies\Microsoft\Edge\ExtensionInstallForcelist' 80 @('forced Edge extension policy not in clean baseline')
-Invoke-RegistryValueCleanup 'EdgePolicy' 'EdgeExtensionSettingsHKLM' 'HKLM:\Software\Policies\Microsoft\Edge\ExtensionSettings'
-Invoke-RegistryValueCleanup 'EdgePolicy' 'EdgeExtensionSettingsHKCU' 'HKCU:\Software\Policies\Microsoft\Edge\ExtensionSettings'
-
-Write-Step "Checking Office Startup folders and add-ins"
-Invoke-OfficeStartupCleanup
+$desktopPaths = @(
+    [Environment]::GetFolderPath('Desktop'),
+    'C:\Users\Public\Desktop'
+) | Where-Object { $_ }
+$startMenuPaths = @(
+    (Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu'),
+    'C:\ProgramData\Microsoft\Windows\Start Menu'
+) | Where-Object { $_ }
+$officeStartupPaths = @(
+    (Join-PathIfRoot $env:APPDATA 'Microsoft\Word\STARTUP'),
+    (Join-PathIfRoot $env:APPDATA 'Microsoft\Excel\XLSTART'),
+    (Join-PathIfRoot $env:ProgramFiles 'Microsoft Office\root\Office16\STARTUP'),
+    (Join-PathIfRoot ${env:ProgramFiles(x86)} 'Microsoft Office\root\Office16\STARTUP')
+) | Where-Object { $_ }
+$powerShellProfilePaths = @(
+    "$PSHOME\profile.ps1",
+    "$PSHOME\Microsoft.PowerShell_profile.ps1",
+    (Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'WindowsPowerShell\profile.ps1'),
+    (Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'WindowsPowerShell\Microsoft.PowerShell_profile.ps1'),
+    (Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'PowerShell\profile.ps1'),
+    (Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'PowerShell\Microsoft.PowerShell_profile.ps1'),
+    (Join-PathIfRoot $env:ProgramFiles 'PowerShell\7\profile.ps1'),
+    (Join-PathIfRoot ${env:ProgramFiles(x86)} 'PowerShell\7\profile.ps1')
+) | Where-Object { $_ }
 $officeVersions = @('12.0', '14.0', '15.0', '16.0')
 $officeApps = @('Word', 'Excel', 'PowerPoint', 'Outlook')
 $officeAddinPaths = @()
@@ -773,53 +655,113 @@ foreach ($root in @('HKLM:\Software', 'HKCU:\Software', 'HKLM:\Software\WOW6432N
         }
     }
 }
-Invoke-RegistrySubKeyCleanup 'OfficeAddin' 'OfficeAddins' $officeAddinPaths 15 @('Office add-in autoload location')
-Invoke-RegistrySubKeyCleanup 'COMAddin' 'COMAddins' @(
+
+Write-Step "Cleaning registry Run and RunOnce values"
+Invoke-RegValueCleanup 'RegistryRun' 'RunHKLM' 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
+Invoke-RegValueCleanup 'RegistryRun' 'RunHKCU' 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
+Invoke-RegValueCleanup 'RegistryRunOnce' 'RunOnceHKLM' 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce'
+Invoke-RegValueCleanup 'RegistryRunOnce' 'RunOnceHKCU' 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce'
+Invoke-RegValueCleanup 'RegistryRunWow6432Node' 'RunWow6432NodeHKLM' 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Run'
+Invoke-RegValueCleanup 'RegistryRunOnceWow6432Node' 'RunOnceWow6432NodeHKLM' 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\RunOnce'
+Invoke-RegValueCleanup 'RegistryRunWow6432Node' 'RunWow6432NodeHKCU' 'HKCU:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Run'
+Invoke-RegValueCleanup 'RegistryRunOnceWow6432Node' 'RunOnceWow6432NodeHKCU' 'HKCU:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\RunOnce'
+
+Write-Step "Cleaning Startup folders"
+Invoke-FileCleanup 'StartupUser' 'StartupUser' @($startupUser)
+Invoke-FileCleanup 'StartupPublic' 'StartupPublic' @($startupPublic)
+
+Write-Step "Cleaning scheduled tasks"
+Invoke-ScheduledTaskCleanup
+
+Write-Step "Cleaning Windows services"
+Invoke-ServiceCleanup
+
+Write-Step "Cleaning WMI subscriptions"
+Invoke-WmiBindingCleanup
+Invoke-WmiNamedCleanup 'WMIFilter' 'WMIFilters' '__EventFilter'
+Invoke-WmiNamedCleanup 'WMIConsumer' 'WMIConsumers' '__EventConsumer'
+
+Write-Step "Cleaning DLL/policy registry values"
+Invoke-RegValueCleanup 'AppCertDlls' 'AppCertDlls' 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\AppCertDlls'
+Invoke-SingleRegValueMarkerCleanup 'AppInitDLLs' 'AppInitDLLs' 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Windows' 'AppInit_DLLs'
+Invoke-SingleRegValueMarkerCleanup 'AppInitDLLsWow64' 'AppInitDLLsWow64' 'HKLM:\SOFTWARE\Wow6432Node\Microsoft\Windows NT\CurrentVersion\Windows' 'AppInit_DLLs'
+Invoke-RegValueCleanup 'NetShHelperDLLs' 'NetShHelperDLLs' 'HKLM:\SOFTWARE\Microsoft\NetSh'
+Invoke-RegValueCleanup 'EdgePolicy' 'EdgeExtensionInstallForcelistHKLM' 'HKLM:\Software\Policies\Microsoft\Edge\ExtensionInstallForcelist'
+Invoke-RegValueCleanup 'EdgePolicy' 'EdgeExtensionInstallForcelistHKCU' 'HKCU:\Software\Policies\Microsoft\Edge\ExtensionInstallForcelist'
+Invoke-RegValueCleanup 'EdgePolicy' 'EdgeExtensionSettingsHKLM' 'HKLM:\Software\Policies\Microsoft\Edge\ExtensionSettings'
+Invoke-RegValueCleanup 'EdgePolicy' 'EdgeExtensionSettingsHKCU' 'HKCU:\Software\Policies\Microsoft\Edge\ExtensionSettings'
+
+Write-Step "Cleaning registry subkeys"
+Invoke-RegSubKeyCleanup 'PrintMonitor' 'PrintMonitors' @('HKLM:\SYSTEM\CurrentControlSet\Control\Print\Monitors')
+Invoke-RegSubKeyCleanup 'TimeProvider' 'TimeProviders' @('HKLM:\SYSTEM\CurrentControlSet\Services\W32Time\TimeProviders')
+Invoke-RegSubKeyCleanup 'OfficeAddin' 'OfficeAddins' $officeAddinPaths
+Invoke-RegSubKeyCleanup 'COMAddin' 'COMAddins' @(
     'HKLM:\Software\Microsoft\Office\Addins',
     'HKCU:\Software\Microsoft\Office\Addins',
     'HKLM:\Software\WOW6432Node\Microsoft\Office\Addins',
     'HKCU:\Software\WOW6432Node\Microsoft\Office\Addins'
-) 15 @('COM add-in autoload location')
-
-Write-Step "Checking PowerShell profiles"
-Invoke-PowerShellProfileCleanup
-
-Write-Step "Checking shortcuts"
-Invoke-ShortcutCleanup
-
-Write-Step "Checking Active Setup"
-Invoke-RegistrySubKeyCleanup 'ActiveSetup' 'ActiveSetup' @(
+)
+Invoke-RegSubKeyCleanup 'ActiveSetup' 'ActiveSetup' @(
     'HKLM:\SOFTWARE\Microsoft\Active Setup\Installed Components',
     'HKCU:\SOFTWARE\Microsoft\Active Setup\Installed Components',
     'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Active Setup\Installed Components',
     'HKCU:\SOFTWARE\WOW6432Node\Microsoft\Active Setup\Installed Components'
-) 20 @('Active Setup StubPath autostart location')
+)
 
-Write-Step "Quarantining referenced helper files"
-foreach ($path in @($script:QueuedFiles.Keys)) {
-    Move-ToQuarantine $path $script:QueuedFiles[$path]
+Write-Step "Cleaning IFEO Debugger values"
+try {
+    Get-ChildItem 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options' -ErrorAction SilentlyContinue | ForEach-Object {
+        $debugger = (Get-ItemProperty $_.PSPath -Name Debugger -ErrorAction SilentlyContinue).Debugger
+        if ($null -eq $debugger) { return }
+        $reason = Get-CleanupReason -Section 'IFEO' -Identity $_.PSChildName -Text (ConvertTo-TextValue $debugger)
+        if (-not $reason) { return }
+        $status = if ($DryRun) { 'DryRun' } else { 'Removed' }
+        if (-not $DryRun) {
+            Remove-ItemProperty -Path $_.PSPath -Name Debugger -Force -ErrorAction Stop
+        }
+        Add-Finding 'IFEO' $_.PSChildName $_.PSPath 'Remove Debugger registry value' $reason $status
+        Write-Removed "$status IFEO Debugger: $($_.PSChildName)"
+    }
+} catch {
+    Add-Finding 'IFEO' 'IFEO' 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options' 'Remove Debugger registry value' "error: $_" 'Failed'
 }
+
+Write-Step "Cleaning scalar persistence values"
+Invoke-MultiStringCleanup 'LSASecurityPackages' 'LSASecurityPackages' 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa' 'Security Packages'
+Invoke-MultiStringCleanup 'LSAOSConfigSecurityPackages' 'LSAOSConfigSecurityPackages' 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\OSConfig' 'Security Packages'
+Invoke-ScalarValueCleanup 'BootExecute' 'BootExecute' 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager' 'BootExecute' @('autocheck autochk *')
+Invoke-WinlogonCleanup
+
+Write-Step "Cleaning Office Startup folders"
+Invoke-FileCleanup 'OfficeStartupFile' 'OfficeStartupFiles' $officeStartupPaths
+
+Write-Step "Cleaning PowerShell profiles"
+Invoke-ProfileCleanup $powerShellProfilePaths
+
+Write-Step "Cleaning shortcuts"
+Invoke-FileCleanup 'Shortcut' 'Shortcuts' (@($startupUser, $startupPublic) + $desktopPaths + $startMenuPaths) -Filter '*.lnk' -Recurse
 
 Write-Step "Removing project proof file if present"
 try {
     if (Test-Path -LiteralPath $payloadPath -PathType Leaf) {
         $content = Get-Content -LiteralPath $payloadPath -Raw -ErrorAction SilentlyContinue
+        $reason = Get-RecentReason $payloadPath
         if (($content.Trim()) -eq $payloadContent) {
-            if (-not $DryRun) {
-                Remove-Item -LiteralPath $payloadPath -Force -ErrorAction Stop
-            }
-            $status = if ($DryRun) { 'DryRun' } else { 'Removed' }
-            Add-Finding 'PayloadFile' $payloadPath 'pwned.txt' '' 100 @('project proof file contained Pwn3d') 'Remove project proof file' $status
-            Write-Removed "$status payload proof file: $payloadPath"
+            $reason = "$reason; contained expected project payload text"
         } else {
-            Write-Warn "$payloadPath exists but does not contain the expected project payload text; left untouched."
+            $reason = "$reason; proof path existed with different content"
         }
+        $status = if ($DryRun) { 'DryRun' } else { 'Removed' }
+        if (-not $DryRun) {
+            Remove-Item -LiteralPath $payloadPath -Force -ErrorAction Stop
+        }
+        Add-Finding 'PayloadFile' 'pwned.txt' $payloadPath 'Remove project proof file' $reason $status
+        Write-Removed "$status payload proof file: $payloadPath"
     } else {
         Write-OK 'Project proof file not present.'
     }
 } catch {
-    Add-Finding 'PayloadFile' $payloadPath 'pwned.txt' '' 100 @('project proof file cleanup failed', "$_") 'Remove project proof file' 'Failed'
-    Write-Warn "Could not remove project proof file: $_"
+    Add-Finding 'PayloadFile' 'pwned.txt' $payloadPath 'Remove project proof file' "error: $_" 'Failed'
 }
 
 Write-Step "Writing log"
@@ -828,12 +770,11 @@ try {
         TimeUtc = (Get-Date).ToUniversalTime().ToString('o')
         DryRun = [bool]$DryRun
         BaselinePath = $baselinePath
-        BaselineLoaded = [bool]$script:BaselineAvailable
         QuarantinePath = if (Test-Path -LiteralPath $quarantineRoot) { $quarantineRoot } else { '' }
         FindingCount = @($script:Findings).Count
         Findings = @($script:Findings)
     }
-    $summary | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $logPath -Encoding UTF8
+    $summary | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $logPath -Encoding UTF8
     Write-OK "Log saved: $logPath"
 } catch {
     Write-Warn "Could not write defender log: $_"

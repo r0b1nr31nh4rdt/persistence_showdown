@@ -1,6 +1,6 @@
 #Requires -RunAsAdministrator
 
-# Erlaubte NetSh Helper DLLs: Wertname -> DLL-Dateiname
+# Allowed NetSh Helper DLLs: value name -> DLL filename
 $allowedHelpers = @{
     "2"           = "ifmon.dll"
     "4"           = "rasmontr.dll"
@@ -36,7 +36,7 @@ Write-Host "=== netsh-helpers ===" -ForegroundColor Cyan
 
 try {
     if (-not (Test-Path -Path $regPath)) {
-        Write-Host "  [OK] NetSh-Key nicht vorhanden" -ForegroundColor Green
+        Write-Host "  [OK] NetSh key not found" -ForegroundColor Green
     } else {
         $props = Get-ItemProperty -Path $regPath -ErrorAction Stop
         $values = @($props.PSObject.Properties | Where-Object {
@@ -50,37 +50,37 @@ try {
             if ($allowedHelpers.ContainsKey($name)) {
                 $expectedDll = $allowedHelpers[$name]
                 if ($dll -eq $expectedDll) {
-                    Write-Host "  [OK] '$name' = '$dll' bekannt" -ForegroundColor Green
+                    Write-Host "  [OK] '$name' = '$dll' whitelisted" -ForegroundColor Green
                 } else {
-                    $findings += "NetSh Helper '$name': erwartet '$expectedDll', gefunden '$dll'"
-                    Write-Host "  [FUND] '$name' hat falschen DLL-Wert: '$dll' (erwartet: '$expectedDll')" -ForegroundColor Red
+                    $findings += "NetSh Helper '$name': expected '$expectedDll', found '$dll'"
+                    Write-Host "  [FIND] '$name' has wrong DLL value: '$dll' (expected: '$expectedDll')" -ForegroundColor Red
                     try {
                         Set-ItemProperty -Path $regPath -Name $name -Value $expectedDll -Force -ErrorAction Stop
-                        $actions += "NetSh Helper '$name' auf '$expectedDll' korrigiert"
-                        Write-Host "  [OK] '$name' korrigiert auf '$expectedDll'" -ForegroundColor Green
+                        $actions += "NetSh Helper '$name' corrected to '$expectedDll'"
+                        Write-Host "  [OK] '$name' corrected to '$expectedDll'" -ForegroundColor Green
                     } catch {
-                        $actions += "Korrektur von '$name' fehlgeschlagen: $_"
-                        Write-Host "  [WARN] Fehler beim Korrigieren von '$name': $_" -ForegroundColor Yellow
+                        $actions += "Failed to correct '$name': $_"
+                        Write-Host "  [WARN] Error correcting '$name': $_" -ForegroundColor Yellow
                         $success = $false
                     }
                 }
             } else {
-                $findings += "Unbekannter NetSh Helper: '$name' = '$dll'"
-                Write-Host "  [FUND] Unbekannter NetSh Helper: '$name' = '$dll'" -ForegroundColor Red
+                $findings += "Unknown NetSh Helper: '$name' = '$dll'"
+                Write-Host "  [FIND] Unknown NetSh Helper: '$name' = '$dll'" -ForegroundColor Red
                 try {
                     Remove-ItemProperty -Path $regPath -Name $name -Force -ErrorAction Stop
-                    $actions += "NetSh Helper '$name' entfernt"
-                    Write-Host "  [OK] '$name' entfernt" -ForegroundColor Green
+                    $actions += "NetSh Helper '$name' removed"
+                    Write-Host "  [OK] '$name' removed" -ForegroundColor Green
                 } catch {
-                    $actions += "Entfernung von '$name' fehlgeschlagen: $_"
-                    Write-Host "  [WARN] Fehler beim Entfernen von '$name': $_" -ForegroundColor Yellow
+                    $actions += "Failed to remove '$name': $_"
+                    Write-Host "  [WARN] Error removing '$name': $_" -ForegroundColor Yellow
                     $success = $false
                 }
             }
         }
     }
 } catch {
-    Write-Host "  [WARN] Fehler beim Pruefen der NetSh Helper: $_" -ForegroundColor Yellow
+    Write-Host "  [WARN] Error checking NetSh helpers: $_" -ForegroundColor Yellow
     $success = $false
 }
 

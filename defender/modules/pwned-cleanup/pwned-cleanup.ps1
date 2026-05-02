@@ -11,22 +11,22 @@ Write-Host "=== pwned-cleanup ===" -ForegroundColor Cyan
 
 try {
     if (-not (Test-Path -LiteralPath $targetPath -PathType Leaf)) {
-        Write-Host "  [OK] pwned.txt nicht vorhanden" -ForegroundColor Green
+        Write-Host "  [OK] pwned.txt not found" -ForegroundColor Green
     } else {
-        $findings += "pwned.txt gefunden: '$targetPath'"
-        Write-Host "  [FUND] pwned.txt gefunden: '$targetPath'" -ForegroundColor Red
+        $findings += "pwned.txt found: '$targetPath'"
+        Write-Host "  [FIND] pwned.txt found: '$targetPath'" -ForegroundColor Red
         try {
             Remove-Item -LiteralPath $targetPath -Force -ErrorAction Stop
-            $actions += "pwned.txt geloescht: '$targetPath'"
-            Write-Host "  [OK] pwned.txt geloescht" -ForegroundColor Green
+            $actions += "pwned.txt deleted: '$targetPath'"
+            Write-Host "  [OK] pwned.txt deleted" -ForegroundColor Green
         } catch {
-            $actions += "Loeschen fehlgeschlagen: $_"
-            Write-Host "  [WARN] Fehler beim Loeschen von pwned.txt: $_" -ForegroundColor Yellow
+            $actions += "Failed to delete: $_"
+            Write-Host "  [WARN] Error deleting pwned.txt: $_" -ForegroundColor Yellow
             $success = $false
         }
     }
 } catch {
-    Write-Host "  [WARN] Fehler beim Pruefen von pwned.txt: $_" -ForegroundColor Yellow
+    Write-Host "  [WARN] Error checking pwned.txt: $_" -ForegroundColor Yellow
     $success = $false
 }
 

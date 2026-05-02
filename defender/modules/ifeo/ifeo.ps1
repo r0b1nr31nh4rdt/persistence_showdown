@@ -11,7 +11,7 @@ Write-Host "=== ifeo ===" -ForegroundColor Cyan
 
 try {
     if (-not (Test-Path -Path $regPath)) {
-        Write-Host "  [OK] IFEO-Key nicht vorhanden" -ForegroundColor Green
+        Write-Host "  [OK] IFEO key not found" -ForegroundColor Green
     } else {
         $subkeys = @(Get-ChildItem -Path $regPath -ErrorAction Stop)
         foreach ($subkey in $subkeys) {
@@ -20,28 +20,28 @@ try {
                 $debuggerProp = $props.PSObject.Properties | Where-Object { $_.Name -eq "Debugger" }
                 if ($debuggerProp) {
                     $debuggerValue = [string]$debuggerProp.Value
-                    $findings += "IFEO Debugger-Wert: '$($subkey.PSChildName)' -> '$debuggerValue'"
-                    Write-Host "  [FUND] IFEO '$($subkey.PSChildName)': Debugger = '$debuggerValue'" -ForegroundColor Red
+                    $findings += "IFEO Debugger value: '$($subkey.PSChildName)' -> '$debuggerValue'"
+                    Write-Host "  [FIND] IFEO '$($subkey.PSChildName)': Debugger = '$debuggerValue'" -ForegroundColor Red
                     try {
                         Remove-ItemProperty -Path $subkey.PSPath -Name "Debugger" -Force -ErrorAction Stop
-                        $actions += "IFEO '$($subkey.PSChildName)': Debugger-Wert entfernt"
-                        Write-Host "  [OK] Debugger-Wert bei '$($subkey.PSChildName)' entfernt" -ForegroundColor Green
+                        $actions += "IFEO '$($subkey.PSChildName)': Debugger value removed"
+                        Write-Host "  [OK] Debugger value removed from '$($subkey.PSChildName)'" -ForegroundColor Green
                     } catch {
-                        $actions += "IFEO '$($subkey.PSChildName)': Entfernung fehlgeschlagen: $_"
-                        Write-Host "  [WARN] Fehler beim Entfernen des Debugger-Wertes bei '$($subkey.PSChildName)': $_" -ForegroundColor Yellow
+                        $actions += "IFEO '$($subkey.PSChildName)': removal failed: $_"
+                        Write-Host "  [WARN] Error removing Debugger value from '$($subkey.PSChildName)': $_" -ForegroundColor Yellow
                         $success = $false
                     }
                 } else {
-                    Write-Host "  [OK] '$($subkey.PSChildName)': kein Debugger-Wert" -ForegroundColor Green
+                    Write-Host "  [OK] '$($subkey.PSChildName)': no Debugger value" -ForegroundColor Green
                 }
             } catch {
-                Write-Host "  [WARN] Fehler beim Lesen von '$($subkey.PSChildName)': $_" -ForegroundColor Yellow
+                Write-Host "  [WARN] Error reading '$($subkey.PSChildName)': $_" -ForegroundColor Yellow
                 $success = $false
             }
         }
     }
 } catch {
-    Write-Host "  [WARN] Fehler beim Pruefen von IFEO: $_" -ForegroundColor Yellow
+    Write-Host "  [WARN] Error checking IFEO: $_" -ForegroundColor Yellow
     $success = $false
 }
 

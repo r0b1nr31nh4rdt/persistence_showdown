@@ -61,7 +61,7 @@ $allowedServices = @(
     "XblGameSave", "XboxGipSvc", "XboxNetApiSvc", "ZTHELPER"
 )
 
-# Basisnamen ohne Session-ID-Suffix (_12345) fuer per-User-Dienste
+# Base names without session ID suffix (_12345) for per-user services
 $allowedBaseNames = $allowedServices | ForEach-Object { $_ -replace '_\d+$', '' }
 
 $findings = @()
@@ -78,24 +78,24 @@ try {
     foreach ($svc in $services) {
         $baseName = $svc.Name -replace '_\d+$', ''
         if ($allowedBaseNames -contains $baseName) {
-            Write-Host "  [OK] '$($svc.Name)' bekannt" -ForegroundColor Green
+            Write-Host "  [OK] '$($svc.Name)' whitelisted" -ForegroundColor Green
         } else {
-            $findings += "Unbekannter Dienst: '$($svc.Name)' (StartMode: $($svc.StartMode), Path: $($svc.PathName))"
-            Write-Host "  [FUND] '$($svc.Name)' nicht in Whitelist ($($svc.StartMode))" -ForegroundColor Red
+            $findings += "Unknown service: '$($svc.Name)' (StartMode: $($svc.StartMode), Path: $($svc.PathName))"
+            Write-Host "  [FIND] '$($svc.Name)' not in whitelist ($($svc.StartMode))" -ForegroundColor Red
             try {
                 Stop-Service -Name $svc.Name -Force -ErrorAction SilentlyContinue
                 Set-Service -Name $svc.Name -StartupType Disabled -ErrorAction Stop
-                $actions += "Dienst '$($svc.Name)' gestoppt und deaktiviert"
-                Write-Host "  [OK] '$($svc.Name)' gestoppt und deaktiviert" -ForegroundColor Green
+                $actions += "Service '$($svc.Name)' stopped and disabled"
+                Write-Host "  [OK] '$($svc.Name)' stopped and disabled" -ForegroundColor Green
             } catch {
-                $actions += "Dienst '$($svc.Name)' konnte nicht deaktiviert werden: $_"
-                Write-Host "  [WARN] Fehler bei '$($svc.Name)': $_" -ForegroundColor Yellow
+                $actions += "Failed to disable service '$($svc.Name)': $_"
+                Write-Host "  [WARN] Error processing '$($svc.Name)': $_" -ForegroundColor Yellow
                 $success = $false
             }
         }
     }
 } catch {
-    Write-Host "  [WARN] Fehler beim Abrufen der Dienste: $_" -ForegroundColor Yellow
+    Write-Host "  [WARN] Error retrieving services: $_" -ForegroundColor Yellow
     $success = $false
 }
 

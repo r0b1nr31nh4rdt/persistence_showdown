@@ -244,7 +244,7 @@ $allowedTasks = @(
     "\Microsoft\XblGameSave\XblGameSaveTask"
 )
 
-# Tasks mit SID-Suffix: Prefix-Match statt exakter Vergleich
+# Tasks with SID suffix: prefix match instead of exact comparison
 $allowedTaskPrefixes = @(
     "\OneDrive Reporting Task-S-",
     "\OneDrive Standalone Update Task-S-",
@@ -275,23 +275,23 @@ try {
         }
 
         if ($isAllowed) {
-            Write-Host "  [OK] '$fullPath' bekannt" -ForegroundColor Green
+            Write-Host "  [OK] '$fullPath' whitelisted" -ForegroundColor Green
         } else {
-            $findings += "Unbekannter Task: '$fullPath'"
-            Write-Host "  [FUND] '$fullPath' nicht in Whitelist" -ForegroundColor Red
+            $findings += "Unknown task: '$fullPath'"
+            Write-Host "  [FIND] '$fullPath' not in whitelist" -ForegroundColor Red
             try {
                 Unregister-ScheduledTask -TaskName $task.TaskName -TaskPath $task.TaskPath -Confirm:$false -ErrorAction Stop
-                $actions += "Task '$fullPath' geloescht"
-                Write-Host "  [OK] Task geloescht: '$fullPath'" -ForegroundColor Green
+                $actions += "Task '$fullPath' removed"
+                Write-Host "  [OK] Task removed: '$fullPath'" -ForegroundColor Green
             } catch {
-                $actions += "Task '$fullPath' konnte nicht geloescht werden: $_"
-                Write-Host "  [WARN] Fehler beim Loeschen von '$fullPath': $_" -ForegroundColor Yellow
+                $actions += "Failed to remove task '$fullPath': $_"
+                Write-Host "  [WARN] Error removing '$fullPath': $_" -ForegroundColor Yellow
                 $success = $false
             }
         }
     }
 } catch {
-    Write-Host "  [WARN] Fehler beim Abrufen der Scheduled Tasks: $_" -ForegroundColor Yellow
+    Write-Host "  [WARN] Error retrieving scheduled tasks: $_" -ForegroundColor Yellow
     $success = $false
 }
 

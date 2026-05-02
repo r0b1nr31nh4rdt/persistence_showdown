@@ -17,30 +17,30 @@ Write-Host "=== time-providers ===" -ForegroundColor Cyan
 
 try {
     if (-not (Test-Path -Path $regPath)) {
-        Write-Host "  [OK] TimeProviders-Key nicht vorhanden" -ForegroundColor Green
+        Write-Host "  [OK] TimeProviders key not found" -ForegroundColor Green
     } else {
         $subkeys = @(Get-ChildItem -Path $regPath -ErrorAction Stop)
         foreach ($subkey in $subkeys) {
             $providerName = $subkey.PSChildName
             if ($allowedProviders -contains $providerName) {
-                Write-Host "  [OK] '$providerName' bekannt" -ForegroundColor Green
+                Write-Host "  [OK] '$providerName' whitelisted" -ForegroundColor Green
             } else {
-                $findings += "Unbekannter Time Provider: '$providerName'"
-                Write-Host "  [FUND] Unbekannter Time Provider: '$providerName'" -ForegroundColor Red
+                $findings += "Unknown Time Provider: '$providerName'"
+                Write-Host "  [FIND] Unknown Time Provider: '$providerName'" -ForegroundColor Red
                 try {
                     Remove-Item -Path $subkey.PSPath -Recurse -Force -ErrorAction Stop
-                    $actions += "Time Provider '$providerName' entfernt"
-                    Write-Host "  [OK] '$providerName' entfernt" -ForegroundColor Green
+                    $actions += "Time Provider '$providerName' removed"
+                    Write-Host "  [OK] '$providerName' removed" -ForegroundColor Green
                 } catch {
-                    $actions += "Entfernung von '$providerName' fehlgeschlagen: $_"
-                    Write-Host "  [WARN] Fehler beim Entfernen von '$providerName': $_" -ForegroundColor Yellow
+                    $actions += "Failed to remove '$providerName': $_"
+                    Write-Host "  [WARN] Error removing '$providerName': $_" -ForegroundColor Yellow
                     $success = $false
                 }
             }
         }
     }
 } catch {
-    Write-Host "  [WARN] Fehler beim Pruefen der Time Providers: $_" -ForegroundColor Yellow
+    Write-Host "  [WARN] Error checking Time Providers: $_" -ForegroundColor Yellow
     $success = $false
 }
 

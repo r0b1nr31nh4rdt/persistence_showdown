@@ -11,7 +11,7 @@ Write-Host "=== appcertdlls ===" -ForegroundColor Cyan
 
 try {
     if (-not (Test-Path -Path $regPath)) {
-        Write-Host "  [OK] AppCertDlls-Key nicht vorhanden" -ForegroundColor Green
+        Write-Host "  [OK] AppCertDlls key not found" -ForegroundColor Green
     } else {
         $props = Get-ItemProperty -Path $regPath -ErrorAction Stop
         $values = @($props.PSObject.Properties | Where-Object {
@@ -19,36 +19,36 @@ try {
         })
 
         if ($values.Count -eq 0) {
-            Write-Host "  [OK] AppCertDlls leer" -ForegroundColor Green
+            Write-Host "  [OK] AppCertDlls empty" -ForegroundColor Green
         } else {
             foreach ($v in $values) {
                 $dllPath = [string]$v.Value
-                $findings += "AppCertDlls Eintrag gefunden: '$($v.Name)' = '$dllPath'"
-                Write-Host "  [FUND] AppCertDlls: '$($v.Name)' = '$dllPath'" -ForegroundColor Red
+                $findings += "AppCertDlls entry found: '$($v.Name)' = '$dllPath'"
+                Write-Host "  [FIND] AppCertDlls: '$($v.Name)' = '$dllPath'" -ForegroundColor Red
 
-                # Registry-Eintrag loeschen
+                # Remove registry entry
                 try {
                     Remove-ItemProperty -Path $regPath -Name $v.Name -Force -ErrorAction Stop
-                    $actions += "Registry-Wert '$($v.Name)' entfernt"
-                    Write-Host "  [OK] Registry-Wert '$($v.Name)' entfernt" -ForegroundColor Green
+                    $actions += "Registry value '$($v.Name)' removed"
+                    Write-Host "  [OK] Registry value '$($v.Name)' removed" -ForegroundColor Green
                 } catch {
-                    $actions += "Registry-Wert '$($v.Name)' konnte nicht entfernt werden: $_"
-                    Write-Host "  [WARN] Fehler beim Entfernen von '$($v.Name)': $_" -ForegroundColor Yellow
+                    $actions += "Failed to remove registry value '$($v.Name)': $_"
+                    Write-Host "  [WARN] Error removing '$($v.Name)': $_" -ForegroundColor Yellow
                     $success = $false
                 }
 
-                # Referenzierte DLL-Datei loeschen
+                # Delete referenced DLL file
                 if (-not [string]::IsNullOrWhiteSpace($dllPath)) {
                     $expandedPath = [Environment]::ExpandEnvironmentVariables($dllPath.Trim('"'))
                     try {
                         if (Test-Path -LiteralPath $expandedPath -PathType Leaf) {
                             Remove-Item -LiteralPath $expandedPath -Force -ErrorAction Stop
-                            $actions += "DLL-Datei geloescht: '$expandedPath'"
-                            Write-Host "  [OK] DLL geloescht: '$expandedPath'" -ForegroundColor Green
+                            $actions += "DLL file deleted: '$expandedPath'"
+                            Write-Host "  [OK] DLL deleted: '$expandedPath'" -ForegroundColor Green
                         }
                     } catch {
-                        $actions += "DLL '$expandedPath' konnte nicht geloescht werden: $_"
-                        Write-Host "  [WARN] Fehler beim Loeschen von '$expandedPath': $_" -ForegroundColor Yellow
+                        $actions += "Failed to delete DLL '$expandedPath': $_"
+                        Write-Host "  [WARN] Error deleting '$expandedPath': $_" -ForegroundColor Yellow
                         $success = $false
                     }
                 }
@@ -56,7 +56,7 @@ try {
         }
     }
 } catch {
-    Write-Host "  [WARN] Fehler beim Pruefen von AppCertDlls: $_" -ForegroundColor Yellow
+    Write-Host "  [WARN] Error checking AppCertDlls: $_" -ForegroundColor Yellow
     $success = $false
 }
 

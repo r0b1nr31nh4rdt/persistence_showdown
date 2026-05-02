@@ -10,7 +10,7 @@ $success  = $true
 Write-Host ""
 Write-Host "=== wmi-subscriptions ===" -ForegroundColor Cyan
 
-# Bindings zuerst entfernen (referenzieren Filter und Consumer)
+# Remove bindings first (they reference filters and consumers)
 try {
     $bindings = @(Get-WmiObject -Namespace "root\subscription" -Class "__FilterToConsumerBinding" -ErrorAction Stop)
     foreach ($binding in $bindings) {
@@ -22,52 +22,52 @@ try {
         $bindingAllowed = ($allowedFilters -contains $filterName) -and ($allowedConsumers -contains $consumerName)
 
         if ($bindingAllowed) {
-            Write-Host "  [OK] Binding '$filterName' -> '$consumerName' bekannt" -ForegroundColor Green
+            Write-Host "  [OK] Binding '$filterName' -> '$consumerName' whitelisted" -ForegroundColor Green
         } else {
             $findings += "WMI Binding: '$filterName' -> '$consumerName'"
-            Write-Host "  [FUND] WMI Binding: '$filterName' -> '$consumerName'" -ForegroundColor Red
+            Write-Host "  [FIND] WMI Binding: '$filterName' -> '$consumerName'" -ForegroundColor Red
             try {
                 $binding | Remove-WmiObject -ErrorAction Stop
-                $actions += "Binding '$filterName' -> '$consumerName' entfernt"
-                Write-Host "  [OK] Binding entfernt" -ForegroundColor Green
+                $actions += "Binding '$filterName' -> '$consumerName' removed"
+                Write-Host "  [OK] Binding removed" -ForegroundColor Green
             } catch {
-                $actions += "Binding-Entfernung fehlgeschlagen: $_"
-                Write-Host "  [WARN] Fehler beim Entfernen des Bindings: $_" -ForegroundColor Yellow
+                $actions += "Failed to remove binding: $_"
+                Write-Host "  [WARN] Error removing binding: $_" -ForegroundColor Yellow
                 $success = $false
             }
         }
     }
 } catch {
-    Write-Host "  [WARN] Fehler beim Abrufen der WMI Bindings: $_" -ForegroundColor Yellow
+    Write-Host "  [WARN] Error retrieving WMI bindings: $_" -ForegroundColor Yellow
     $success = $false
 }
 
-# EventFilter pruefen
+# Check EventFilters
 try {
     $filters = @(Get-WmiObject -Namespace "root\subscription" -Class "__EventFilter" -ErrorAction Stop)
     foreach ($filter in $filters) {
         if ($allowedFilters -contains $filter.Name) {
-            Write-Host "  [OK] EventFilter '$($filter.Name)' bekannt" -ForegroundColor Green
+            Write-Host "  [OK] EventFilter '$($filter.Name)' whitelisted" -ForegroundColor Green
         } else {
-            $findings += "Unbekannter WMI EventFilter: '$($filter.Name)'"
-            Write-Host "  [FUND] EventFilter '$($filter.Name)' nicht in Whitelist" -ForegroundColor Red
+            $findings += "Unknown WMI EventFilter: '$($filter.Name)'"
+            Write-Host "  [FIND] EventFilter '$($filter.Name)' not in whitelist" -ForegroundColor Red
             try {
                 $filter | Remove-WmiObject -ErrorAction Stop
-                $actions += "EventFilter '$($filter.Name)' entfernt"
-                Write-Host "  [OK] EventFilter '$($filter.Name)' entfernt" -ForegroundColor Green
+                $actions += "EventFilter '$($filter.Name)' removed"
+                Write-Host "  [OK] EventFilter '$($filter.Name)' removed" -ForegroundColor Green
             } catch {
-                $actions += "EventFilter '$($filter.Name)' konnte nicht entfernt werden: $_"
-                Write-Host "  [WARN] Fehler beim Entfernen von EventFilter '$($filter.Name)': $_" -ForegroundColor Yellow
+                $actions += "Failed to remove EventFilter '$($filter.Name)': $_"
+                Write-Host "  [WARN] Error removing EventFilter '$($filter.Name)': $_" -ForegroundColor Yellow
                 $success = $false
             }
         }
     }
 } catch {
-    Write-Host "  [WARN] Fehler beim Abrufen der WMI EventFilter: $_" -ForegroundColor Yellow
+    Write-Host "  [WARN] Error retrieving WMI EventFilters: $_" -ForegroundColor Yellow
     $success = $false
 }
 
-# EventConsumer pruefen (alle Subklassen)
+# Check EventConsumers (all subclasses)
 $consumerClasses = @(
     "__EventConsumer",
     "ActiveScriptEventConsumer",
@@ -82,23 +82,23 @@ foreach ($className in $consumerClasses) {
         $consumers = @(Get-WmiObject -Namespace "root\subscription" -Class $className -ErrorAction SilentlyContinue)
         foreach ($consumer in $consumers) {
             if ($allowedConsumers -contains $consumer.Name) {
-                Write-Host "  [OK] EventConsumer '$($consumer.Name)' bekannt" -ForegroundColor Green
+                Write-Host "  [OK] EventConsumer '$($consumer.Name)' whitelisted" -ForegroundColor Green
             } else {
-                $findings += "Unbekannter WMI EventConsumer ($className): '$($consumer.Name)'"
-                Write-Host "  [FUND] EventConsumer '$($consumer.Name)' ($className) nicht in Whitelist" -ForegroundColor Red
+                $findings += "Unknown WMI EventConsumer ($className): '$($consumer.Name)'"
+                Write-Host "  [FIND] EventConsumer '$($consumer.Name)' ($className) not in whitelist" -ForegroundColor Red
                 try {
                     $consumer | Remove-WmiObject -ErrorAction Stop
-                    $actions += "EventConsumer '$($consumer.Name)' entfernt"
-                    Write-Host "  [OK] EventConsumer '$($consumer.Name)' entfernt" -ForegroundColor Green
+                    $actions += "EventConsumer '$($consumer.Name)' removed"
+                    Write-Host "  [OK] EventConsumer '$($consumer.Name)' removed" -ForegroundColor Green
                 } catch {
-                    $actions += "EventConsumer '$($consumer.Name)' konnte nicht entfernt werden: $_"
-                    Write-Host "  [WARN] Fehler beim Entfernen von Consumer '$($consumer.Name)': $_" -ForegroundColor Yellow
+                    $actions += "Failed to remove EventConsumer '$($consumer.Name)': $_"
+                    Write-Host "  [WARN] Error removing Consumer '$($consumer.Name)': $_" -ForegroundColor Yellow
                     $success = $false
                 }
             }
         }
     } catch {
-        # Klasse nicht vorhanden – kein Fehler
+        # Class not present - no error
     }
 }
 

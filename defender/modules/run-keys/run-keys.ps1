@@ -32,7 +32,7 @@ Write-Host "=== run-keys ===" -ForegroundColor Cyan
 foreach ($loc in $locations) {
     try {
         if (-not (Test-Path $loc.Path)) {
-            Write-Host "  [OK] $($loc.Label): Schluessel nicht vorhanden" -ForegroundColor Green
+            Write-Host "  [OK] $($loc.Label): key not found" -ForegroundColor Green
             continue
         }
         $props = Get-ItemProperty -Path $loc.Path -ErrorAction Stop
@@ -40,28 +40,28 @@ foreach ($loc in $locations) {
             $_.Name -notmatch '^PS(Path|ParentPath|ChildName|Drive|Provider)$'
         })
         if ($values.Count -eq 0) {
-            Write-Host "  [OK] $($loc.Label): leer" -ForegroundColor Green
+            Write-Host "  [OK] $($loc.Label): empty" -ForegroundColor Green
             continue
         }
         foreach ($v in $values) {
             if ($loc.Allowed -contains $v.Name) {
-                Write-Host "  [OK] $($loc.Label): '$($v.Name)' bekannt" -ForegroundColor Green
+                Write-Host "  [OK] $($loc.Label): '$($v.Name)' whitelisted" -ForegroundColor Green
             } else {
-                $findings += "$($loc.Label): Fremder Eintrag '$($v.Name)' = '$($v.Value)'"
-                Write-Host "  [FUND] $($loc.Label): '$($v.Name)' nicht in Whitelist" -ForegroundColor Red
+                $findings += "$($loc.Label): unknown entry '$($v.Name)' = '$($v.Value)'"
+                Write-Host "  [FIND] $($loc.Label): '$($v.Name)' not in whitelist" -ForegroundColor Red
                 try {
                     Remove-ItemProperty -Path $loc.Path -Name $v.Name -Force -ErrorAction Stop
-                    $actions += "$($loc.Label): '$($v.Name)' entfernt"
-                    Write-Host "  [OK] '$($v.Name)' entfernt" -ForegroundColor Green
+                    $actions += "$($loc.Label): '$($v.Name)' removed"
+                    Write-Host "  [OK] '$($v.Name)' removed" -ForegroundColor Green
                 } catch {
-                    $actions += "$($loc.Label): Entfernung von '$($v.Name)' fehlgeschlagen: $_"
-                    Write-Host "  [WARN] Fehler beim Entfernen von '$($v.Name)': $_" -ForegroundColor Yellow
+                    $actions += "$($loc.Label): failed to remove '$($v.Name)': $_"
+                    Write-Host "  [WARN] Error removing '$($v.Name)': $_" -ForegroundColor Yellow
                     $success = $false
                 }
             }
         }
     } catch {
-        Write-Host "  [WARN] Fehler beim Lesen von $($loc.Label): $_" -ForegroundColor Yellow
+        Write-Host "  [WARN] Error reading $($loc.Label): $_" -ForegroundColor Yellow
         $success = $false
     }
 }

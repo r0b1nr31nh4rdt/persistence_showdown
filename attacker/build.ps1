@@ -22,7 +22,7 @@ if ($modules.Count -eq 0) {
 
 foreach ($module in $modules) {
     "" | Add-Content $output
-    "# === $($module.FullName) ===" | Add-Content $output
+    "# === MODULE: $($module.Name) ===" | Add-Content $output
     Get-Content $module.FullName | Add-Content $output
     Write-Host "[+] Added: $($module.Name)" -ForegroundColor Green
 }

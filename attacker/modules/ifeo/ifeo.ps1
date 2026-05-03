@@ -1,4 +1,4 @@
-$targetProcess = "sppsvc.exe"
+$targetProcess = "userinit.exe"
 
 $ifeoPath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\$targetProcess"
 $spePath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SilentProcessExit\$targetProcess"

@@ -20,10 +20,14 @@ $actions  = @()
 $success  = $true
 
 $locations = @(
-    @{ Path = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run";     Allowed = $allowedRunHKLM;     Label = "HKLM Run" },
-    @{ Path = "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run";     Allowed = $allowedRunHKCU;     Label = "HKCU Run" },
-    @{ Path = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce"; Allowed = $allowedRunOnceHKLM; Label = "HKLM RunOnce" },
-    @{ Path = "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce"; Allowed = $allowedRunOnceHKCU; Label = "HKCU RunOnce" }
+    @{ Path = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run";                                    Allowed = $allowedRunHKLM;     Label = "HKLM Run" },
+    @{ Path = "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run";                                    Allowed = $allowedRunHKCU;     Label = "HKCU Run" },
+    @{ Path = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce";                                Allowed = $allowedRunOnceHKLM; Label = "HKLM RunOnce" },
+    @{ Path = "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce";                                Allowed = $allowedRunOnceHKCU; Label = "HKCU RunOnce" },
+    @{ Path = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer\Run";                  Allowed = @();                 Label = "HKCU Policies\Explorer\Run" },
+    @{ Path = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer\Run";                  Allowed = @();                 Label = "HKLM Policies\Explorer\Run" },
+    @{ Path = "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Policies\Explorer\Run";      Allowed = @();                 Label = "HKLM WOW64 Policies\Explorer\Run" },
+    @{ Path = "HKLM:\Software\Microsoft\Windows\CurrentVersion\RunServices";                            Allowed = @();                 Label = "HKLM RunServices" }
 )
 
 Write-Host ""
@@ -64,6 +68,35 @@ foreach ($loc in $locations) {
         Write-Host "  [WARN] Error reading $($loc.Label): $_" -ForegroundColor Yellow
         $success = $false
     }
+}
+
+# --- HKCU Windows\Load (should be empty on a clean system) ---
+$windowsLoadPath = "HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Windows"
+try {
+    if (Test-Path $windowsLoadPath) {
+        $loadVal = ""
+        try { $loadVal = [string](Get-ItemProperty -Path $windowsLoadPath -Name "Load" -ErrorAction Stop).Load } catch {}
+        if ([string]::IsNullOrWhiteSpace($loadVal)) {
+            Write-Host "  [OK] HKCU Windows\Load: empty" -ForegroundColor Green
+        } else {
+            $findings += "HKCU Windows\Load: '$loadVal'"
+            Write-Host "  [FIND] HKCU Windows\Load: '$loadVal'" -ForegroundColor Red
+            try {
+                Remove-ItemProperty -Path $windowsLoadPath -Name "Load" -Force -ErrorAction Stop
+                $actions += "HKCU Windows\Load removed"
+                Write-Host "  [OK] HKCU Windows\Load removed" -ForegroundColor Green
+            } catch {
+                $actions += "HKCU Windows\Load removal failed: $_"
+                Write-Host "  [WARN] Error removing HKCU Windows\Load: $_" -ForegroundColor Yellow
+                $success = $false
+            }
+        }
+    } else {
+        Write-Host "  [OK] HKCU Windows\Load: key not found" -ForegroundColor Green
+    }
+} catch {
+    Write-Host "  [WARN] Error checking HKCU Windows\Load: $_" -ForegroundColor Yellow
+    $success = $false
 }
 
 Write-Host ""

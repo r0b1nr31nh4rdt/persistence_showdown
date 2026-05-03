@@ -1,13 +1,13 @@
 # services
 
-Prueft alle Windows-Dienste mit StartType `Automatic` oder `Manual` gegen eine Whitelist und deaktiviert unbekannte Dienste.
+Checks all Windows services with StartType `Automatic` or `Manual` against a whitelist and disables unknown services.
 
-## Vorgehen
+## Approach
 
-- Nur Dienste mit `StartMode = Auto` oder `Manual` werden betrachtet; `Disabled` wird ignoriert.
-- Per-User-Dienste haben einen Session-ID-Suffix (`_52352`, `_12345` etc.). Der Vergleich erfolgt auf Basis des **Basisnamens** (Suffix wird abgeschnitten), sodass das Modul auf jeder VM korrekt funktioniert.
-- Unbekannte Dienste werden zuerst mit `Stop-Service -Force` gestoppt, dann mit `Set-Service -StartupType Disabled` dauerhaft deaktiviert.
+- Only services with `StartMode = Auto` or `Manual` are considered; `Disabled` is ignored.
+- Per-user services have a session ID suffix (`_52352`, `_12345`, etc.). Comparison is based on the **base name** (suffix is stripped), so the module works correctly on every VM.
+- Unknown services are first stopped with `Stop-Service -Force`, then permanently disabled with `Set-Service -StartupType Disabled`.
 
-## Rueckgabe
+## Return value
 
-`[PSCustomObject]` mit `Module`, `Findings`, `Actions`, `Success`.
+`[PSCustomObject]` with `Module`, `Findings`, `Actions`, `Success`.

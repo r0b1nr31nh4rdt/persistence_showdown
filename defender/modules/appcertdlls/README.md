@@ -1,13 +1,13 @@
 # appcertdlls
 
-Prueft `HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\AppCertDlls` auf Eintraege und entfernt diese inkl. der referenzierten DLL-Dateien.
+Checks `HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\AppCertDlls` for entries and removes them along with the referenced DLL files.
 
-## Vorgehen
+## Approach
 
-- Auf einer sauberen Windows-VM existiert der Key nicht oder ist leer – jeder Eintrag ist verdaechtig.
-- Fuer jeden gefundenen Wert: Registry-Eintrag entfernen, dann die referenzierte DLL-Datei loeschen.
-- Existiert der Key gar nicht, wird kein Fehler geworfen.
+- On a clean Windows VM the key does not exist or is empty — every entry is suspicious.
+- For each value found: remove the registry entry, then delete the referenced DLL file.
+- If the key does not exist at all, no error is thrown.
 
-## Rueckgabe
+## Return value
 
-`[PSCustomObject]` mit `Module`, `Findings`, `Actions`, `Success`.
+`[PSCustomObject]` with `Module`, `Findings`, `Actions`, `Success`.

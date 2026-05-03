@@ -1,14 +1,14 @@
 # scheduled-tasks
 
-Prueft alle registrierten Scheduled Tasks gegen eine Whitelist von 245 bekannten System-Tasks und loescht alle unbekannten Tasks.
+Checks all registered Scheduled Tasks against a whitelist of 245 known system tasks and deletes all unknown tasks.
 
-## Vorgehen
+## Approach
 
-- Alle Tasks werden mit `Get-ScheduledTask` abgerufen.
-- Verglichen wird der vollstaendige Pfad (`TaskPath + TaskName`).
-- Tasks mit SID-Suffix (OneDrive, PostponeDeviceSetupToast) werden per Prefix-Match whitelistet, da der SID auf jeder VM unterschiedlich ist.
-- Unbekannte Tasks werden mit `Unregister-ScheduledTask -Confirm:$false` entfernt.
+- All tasks are retrieved with `Get-ScheduledTask`.
+- The full path (`TaskPath + TaskName`) is compared.
+- Tasks with a SID suffix (OneDrive, PostponeDeviceSetupToast) are whitelisted by prefix match, since the SID differs on each VM.
+- Unknown tasks are removed with `Unregister-ScheduledTask -Confirm:$false`.
 
-## Rueckgabe
+## Return value
 
-`[PSCustomObject]` mit `Module`, `Findings`, `Actions`, `Success`.
+`[PSCustomObject]` with `Module`, `Findings`, `Actions`, `Success`.

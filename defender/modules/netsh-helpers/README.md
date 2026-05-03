@@ -1,13 +1,13 @@
 # netsh-helpers
 
-Prueft alle NetSh Helper DLL-Registrierungen unter `HKLM:\SOFTWARE\Microsoft\NetSh` gegen eine Whitelist von 21 bekannten Eintraegen.
+Checks all NetSh Helper DLL registrations under `HKLM:\SOFTWARE\Microsoft\NetSh` against a whitelist of 21 known entries.
 
-## Vorgehen
+## Approach
 
-- Wertname UND DLL-Dateiname muessen uebereinstimmen.
-- Bekannter Name, aber falsche DLL: Wert wird auf den korrekten Baseline-Wert zurueckgesetzt.
-- Unbekannter Name: Eintrag wird geloescht.
+- Both the value name AND the DLL filename must match.
+- Known name but wrong DLL: the value is reset to the correct baseline value.
+- Unknown name: the entry is deleted.
 
-## Rueckgabe
+## Return value
 
-`[PSCustomObject]` mit `Module`, `Findings`, `Actions`, `Success`.
+`[PSCustomObject]` with `Module`, `Findings`, `Actions`, `Success`.

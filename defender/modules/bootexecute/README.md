@@ -1,12 +1,12 @@
 # bootexecute
 
-Stellt sicher, dass `BootExecute` unter `HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager` ausschliesslich den Standardwert `autocheck autochk *` enthaelt.
+Ensures that `BootExecute` under `HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager` contains only the default value `autocheck autochk *`.
 
-## Vorgehen
+## Approach
 
-- Enthaelt der REG_MULTI_SZ-Wert zusaetzliche oder abweichende Eintraege, wird er vollstaendig auf den Standardwert zurueckgesetzt.
-- Jeder Eintrag ausser `autocheck autochk *` gilt als Abweichung.
+- If the REG_MULTI_SZ value contains additional or deviating entries, it is fully reset to the default value.
+- Every entry other than `autocheck autochk *` is treated as a deviation.
 
-## Rueckgabe
+## Return value
 
-`[PSCustomObject]` mit `Module`, `Findings`, `Actions`, `Success`.
+`[PSCustomObject]` with `Module`, `Findings`, `Actions`, `Success`.

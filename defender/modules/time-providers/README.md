@@ -1,15 +1,15 @@
 # time-providers
 
-Prueft alle W32Time TimeProvider-Subkeys unter `HKLM:\SYSTEM\CurrentControlSet\Services\W32Time\TimeProviders` gegen eine Whitelist.
+Checks all W32Time TimeProvider subkeys under `HKLM:\SYSTEM\CurrentControlSet\Services\W32Time\TimeProviders` against a whitelist.
 
-## Erlaubte Provider
+## Allowed providers
 
 `NtpClient`, `NtpServer`, `VMICTimeProvider`
 
-## Vorgehen
+## Approach
 
-Unbekannte Subkeys werden mit `Remove-Item -Recurse -Force` geloescht.
+Unknown subkeys are deleted with `Remove-Item -Recurse -Force`.
 
-## Rueckgabe
+## Return value
 
-`[PSCustomObject]` mit `Module`, `Findings`, `Actions`, `Success`.
+`[PSCustomObject]` with `Module`, `Findings`, `Actions`, `Success`.

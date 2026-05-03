@@ -59,15 +59,15 @@ try {
         -PropertyType DWORD `
         -Force
 
-    Write-Host ""
-    Write-Host "- set ACL on registry keys" -ForegroundColor Cyan
+    # Write-Host ""
+    # Write-Host "- set ACL on registry keys" -ForegroundColor Cyan
 
-    # ACL auf beide Registry-Schluessel setzen
-    # Set-RegistryKeyACL $ifeoPath
-    # Set-RegistryKeyACL $spePath
+    # # ACL auf beide Registry-Schluessel setzen
+    # # Set-RegistryKeyACL $ifeoPath
+    # # Set-RegistryKeyACL $spePath
 
-    Write-Host ""
-    Write-Host "- done" -ForegroundColor Cyan
+    # Write-Host ""
+    # Write-Host "- done" -ForegroundColor Cyan
 
 } catch {
     Write-Host "IFEO was not successful: $_" -ForegroundColor Yellow

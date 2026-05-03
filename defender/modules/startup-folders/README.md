@@ -1,16 +1,16 @@
 # startup-folders
 
-Leert beide Windows-Startup-Ordner vollstaendig – kein Whitelist-Vergleich, da auf der Challenge-VM kein legitimer Inhalt erwartet wird.
+Clears both Windows Startup folders completely — no whitelist comparison, since no legitimate content is expected on the challenge VM.
 
-## Geprueft
+## Checked
 
 - `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup` (User)
 - `C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup` (Public)
 
-## Vorgehen
+## Approach
 
-Alle Dateien in beiden Ordnern werden mit `Remove-Item -Force` geloescht. Unterordner werden nicht rekursiv bereinigt (nur Dateien direkt im Startup-Ordner).
+All files in both folders are deleted with `Remove-Item -Force`. Subdirectories are not cleaned recursively (only files directly in the startup folder).
 
-## Rueckgabe
+## Return value
 
-`[PSCustomObject]` mit `Module`, `Findings`, `Actions`, `Success`.
+`[PSCustomObject]` with `Module`, `Findings`, `Actions`, `Success`.

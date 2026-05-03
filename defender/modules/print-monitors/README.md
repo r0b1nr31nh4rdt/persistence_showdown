@@ -1,15 +1,15 @@
 # print-monitors
 
-Prueft alle Print Monitor-Subkeys unter `HKLM:\SYSTEM\CurrentControlSet\Control\Print\Monitors` gegen eine Whitelist von 6 bekannten Monitoren.
+Checks all Print Monitor subkeys under `HKLM:\SYSTEM\CurrentControlSet\Control\Print\Monitors` against a whitelist of 6 known monitors.
 
-## Erlaubte Monitore
+## Allowed monitors
 
 `Appmon`, `Local Port`, `Standard TCP/IP Port`, `USB Monitor`, `Virtual Port Monitor`, `WSD Port`
 
-## Vorgehen
+## Approach
 
-Unbekannte Subkeys werden mit `Remove-Item -Recurse -Force` geloescht.
+Unknown subkeys are deleted with `Remove-Item -Recurse -Force`.
 
-## Rueckgabe
+## Return value
 
-`[PSCustomObject]` mit `Module`, `Findings`, `Actions`, `Success`.
+`[PSCustomObject]` with `Module`, `Findings`, `Actions`, `Success`.

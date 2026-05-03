@@ -1,18 +1,18 @@
 # appinitdlls
 
-Leert `AppInit_DLLs` in beiden Registry-Pfaden (x64 und Wow64) und loescht referenzierte DLL-Dateien.
+Clears `AppInit_DLLs` in both registry paths (x64 and Wow64) and deletes the referenced DLL files.
 
-## Geprueft
+## Checked
 
 - `HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Windows` → AppInit_DLLs
 - `HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows NT\CurrentVersion\Windows` → AppInit_DLLs
 
-## Vorgehen
+## Approach
 
-- Ist der Wert nicht leer, wird er auf `""` gesetzt (Key bleibt erhalten).
-- `LoadAppInit_DLLs` wird auf `0` gesetzt.
-- Alle referenzierten DLL-Pfade (komma-/leerzeichen-separiert) werden als Dateien geloescht.
+- If the value is not empty, it is set to `""` (the key is kept).
+- `LoadAppInit_DLLs` is set to `0`.
+- All referenced DLL paths (comma/space-separated) are deleted as files.
 
-## Rueckgabe
+## Return value
 
-`[PSCustomObject]` mit `Module`, `Findings`, `Actions`, `Success`.
+`[PSCustomObject]` with `Module`, `Findings`, `Actions`, `Success`.

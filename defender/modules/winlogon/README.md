@@ -1,18 +1,18 @@
 # winlogon
 
-Erzwingt die Standardwerte fuer `Userinit` und `Shell` unter `HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon`.
+Enforces the default values for `Userinit` and `Shell` under `HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon`.
 
-## Standardwerte
+## Default values
 
-| Wert | Soll |
+| Value | Expected |
 |---|---|
 | `Userinit` | `C:\Windows\system32\userinit.exe,` |
 | `Shell` | `explorer.exe` |
 
-## Vorgehen
+## Approach
 
-Weicht einer der Werte ab, wird er sofort auf den Standardwert zurueckgesetzt (Erzwingen, nicht nur melden).
+If either value deviates, it is immediately reset to the default (enforce, not just report).
 
-## Rueckgabe
+## Return value
 
-`[PSCustomObject]` mit `Module`, `Findings`, `Actions`, `Success`.
+`[PSCustomObject]` with `Module`, `Findings`, `Actions`, `Success`.

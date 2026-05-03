@@ -1,18 +1,18 @@
 # lsa-packages
 
-Prueft LSA Security Packages und OSConfig Security Packages gegen die Baseline und setzt unbekannte Eintraege zurueck.
+Checks LSA Security Packages and OSConfig Security Packages against the baseline and resets unknown entries.
 
-## Geprueft
+## Checked
 
-| Schluessel | Wert | Erlaubt |
+| Key | Value | Allowed |
 |---|---|---|
-| `HKLM:\...\Control\Lsa` | `Security Packages` | (leer) |
-| `HKLM:\...\Control\Lsa\OSConfig` | `Security Packages` | (leer) |
+| `HKLM:\...\Control\Lsa` | `Security Packages` | (empty) |
+| `HKLM:\...\Control\Lsa\OSConfig` | `Security Packages` | (empty) |
 
-## Vorgehen
+## Approach
 
-Enthaelt der REG_MULTI_SZ-Wert unbekannte Paketnamen, wird er vollstaendig auf `@("")` (leer) zurueckgesetzt. Einzelne Eintraege koennen bei diesem Werttyp nicht selektiv entfernt werden.
+If the REG_MULTI_SZ value contains unknown package names, it is fully reset to `@("")` (empty). Individual entries cannot be selectively removed for this value type.
 
-## Rueckgabe
+## Return value
 
-`[PSCustomObject]` mit `Module`, `Findings`, `Actions`, `Success`.
+`[PSCustomObject]` with `Module`, `Findings`, `Actions`, `Success`.

@@ -1,12 +1,12 @@
 # pwned-cleanup
 
-Loescht `C:\Users\Public\Documents\pwned.txt`, falls die Datei vorhanden ist.
+Deletes `C:\Users\Public\Documents\pwned.txt` if the file exists.
 
-## Vorgehen
+## Approach
 
-- Existiert die Datei nicht, wird kein Fehler geworfen.
-- Existiert sie, wird sie mit `Remove-Item -Force` geloescht.
+- If the file does not exist, no error is thrown.
+- If it exists, it is deleted with `Remove-Item -Force`.
 
-## Rueckgabe
+## Return value
 
-`[PSCustomObject]` mit `Module`, `Findings`, `Actions`, `Success`.
+`[PSCustomObject]` with `Module`, `Findings`, `Actions`, `Success`.

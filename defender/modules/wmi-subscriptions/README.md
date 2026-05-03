@@ -1,17 +1,17 @@
 # wmi-subscriptions
 
-Bereinigt WMI-Persistence im Namespace `root\subscription` (EventFilter, EventConsumer, FilterToConsumerBinding).
+Cleans up WMI persistence in the `root\subscription` namespace (EventFilter, EventConsumer, FilterToConsumerBinding).
 
-## Vorgehen
+## Approach
 
-1. **Bindings zuerst** – damit keine verwaisten Referenzen entstehen.
-2. **EventFilter** – unbekannte Filter werden geloescht.
-3. **EventConsumer** – alle gaengigen Consumer-Klassen werden geprueft (`CommandLineEventConsumer`, `ActiveScriptEventConsumer` etc.).
+1. **Bindings first** — to avoid leaving orphaned references.
+2. **EventFilter** — unknown filters are deleted.
+3. **EventConsumer** — all common consumer classes are checked (`CommandLineEventConsumer`, `ActiveScriptEventConsumer`, etc.).
 
-Whitelistet sind ausschliesslich die Windows-Standard-Eintraege:
+Whitelisted are exclusively the Windows default entries:
 - Filter: `SCM Event Log Filter`
 - Consumer: `SCM Event Log Consumer`
 
-## Rueckgabe
+## Return value
 
-`[PSCustomObject]` mit `Module`, `Findings`, `Actions`, `Success`.
+`[PSCustomObject]` with `Module`, `Findings`, `Actions`, `Success`.

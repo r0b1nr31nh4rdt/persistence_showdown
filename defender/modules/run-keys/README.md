@@ -1,21 +1,21 @@
 # run-keys
 
-Prueft die vier Auto-Start-Registry-Schluessel auf nicht whitelistete Eintraege und entfernt diese.
+Checks the four auto-start registry keys for non-whitelisted entries and removes them.
 
-## Geprueft
+## Checked
 
-| Schluessel | Whitelist |
+| Key | Whitelist |
 |---|---|
 | `HKLM:\...\Run` | SecurityHealth |
 | `HKCU:\...\Run` | OneDrive |
 | `HKLM:\...\RunOnce` | msedge_cleanup_* |
-| `HKCU:\...\RunOnce` | OneDrive-Cleanup-Eintraege |
+| `HKCU:\...\RunOnce` | OneDrive cleanup entries |
 
-## Vorgehen
+## Approach
 
-Verglichen wird ausschliesslich der **Name** des Registry-Wertes (nicht der Pfad), da HKCU-Pfade benutzerspezifische Komponenten enthalten.
-Jeder Eintrag, der nicht in der Whitelist steht, wird mit `Remove-ItemProperty` geloescht.
+Only the **name** of the registry value is compared (not the path), since HKCU paths contain user-specific components.
+Every entry not on the whitelist is deleted with `Remove-ItemProperty`.
 
-## Rueckgabe
+## Return value
 
-`[PSCustomObject]` mit `Module`, `Findings`, `Actions`, `Success`.
+`[PSCustomObject]` with `Module`, `Findings`, `Actions`, `Success`.

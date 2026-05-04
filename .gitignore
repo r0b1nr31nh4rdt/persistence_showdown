@@ -1,6 +1,6 @@
 # Generated files - do not commit
 attacker/attacker_final.ps1
-defender/defend_final.ps1
+defender/defender_final.ps1
 defender/defender-log-*.json
 
 # macOS

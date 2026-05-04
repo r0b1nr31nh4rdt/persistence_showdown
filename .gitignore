@@ -3,6 +3,9 @@ attacker/attacker_final.ps1
 defender/defender_final.ps1
 defender/defender-log-*.json
 
+# Private Stuff
+alex_archive/
+
 # macOS
 .DS_Store
 **/.DS_Store

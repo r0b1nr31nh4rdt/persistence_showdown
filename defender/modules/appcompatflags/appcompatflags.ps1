@@ -1,16 +1,15 @@
 #Requires -RunAsAdministrator
 
-# Value names specifically planted by the attacker as encrypted payload storage
+# Value names specifically planted by the attacker as encrypted payload storage.
 $blobTargets = @(
     @{ Path = "HKCU:\Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"; Name = "CacheData";  Label = "HKCU AppCompatFlags\Layers CacheData" },
     @{ Path = "HKCU:\Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Custom"; Name = "CompatData"; Label = "HKCU AppCompatFlags\Custom CompatData" },
     @{ Path = "HKLM:\Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Custom"; Name = "CompatData"; Label = "HKLM AppCompatFlags\Custom CompatData" }
 )
 
-# DriverData: attacker overwrites with encrypted blob; expected value is a Windows path
-$driverDataPath     = "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment"
-$driverDataName     = "DriverData"
-$driverDataExpected = "C:\Windows\System32\Drivers\DriverData"
+# DriverData: attacker overwrites with encrypted blob; expected value is a Windows path.
+$driverDataPath = "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment"
+$driverDataName = "DriverData"
 
 $findings = @()
 $actions  = @()
@@ -22,7 +21,12 @@ Write-Host "=== appcompatflags ===" -ForegroundColor Cyan
 foreach ($t in $blobTargets) {
     try {
         $val = $null
-        try { $val = (Get-ItemProperty -Path $t.Path -Name $t.Name -ErrorAction Stop).($t.Name) } catch {}
+        try {
+            $props = Get-ItemProperty -Path $t.Path -Name $t.Name -ErrorAction Stop
+            $prop = $props.PSObject.Properties[$t.Name]
+            if ($null -ne $prop) { $val = $prop.Value }
+        } catch {}
+
         if ($null -eq $val) {
             Write-Host "  [OK] $($t.Label): not found" -ForegroundColor Green
         } else {
@@ -44,17 +48,22 @@ foreach ($t in $blobTargets) {
     }
 }
 
-# DriverData: remove if it looks like a payload blob (no backslash = not a path)
+# DriverData: remove if it looks like a payload blob (no backslash = not a path).
 try {
     $ddVal = $null
-    try { $ddVal = [string](Get-ItemProperty -Path $driverDataPath -Name $driverDataName -ErrorAction Stop).$driverDataName } catch {}
+    try {
+        $props = Get-ItemProperty -Path $driverDataPath -Name $driverDataName -ErrorAction Stop
+        $prop = $props.PSObject.Properties[$driverDataName]
+        if ($null -ne $prop) { $ddVal = [string]$prop.Value }
+    } catch {}
+
     if ($null -eq $ddVal -or $ddVal -eq "") {
         Write-Host "  [OK] DriverData: not set" -ForegroundColor Green
     } elseif ($ddVal -like "*\*") {
         Write-Host "  [OK] DriverData: '$ddVal'" -ForegroundColor Green
     } else {
         $findings += "DriverData: unexpected value (looks like payload blob)"
-        Write-Host "  [FIND] DriverData: does not look like a path — possible payload blob" -ForegroundColor Red
+        Write-Host "  [FIND] DriverData: does not look like a path - possible payload blob" -ForegroundColor Red
         try {
             Remove-ItemProperty -Path $driverDataPath -Name $driverDataName -Force -ErrorAction Stop
             $actions += "DriverData removed"

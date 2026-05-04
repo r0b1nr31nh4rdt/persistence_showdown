@@ -1,0 +1,432 @@
+﻿{
+    "TimeUtc":  "2026-05-04T14:17:33.4105710Z",
+    "DryRun":  false,
+    "BaselinePath":  "C:\\Users\\alexc\\OneDrive\\Desktop\\whitelist.json",
+    "QuarantinePath":  "",
+    "FindingCount":  47,
+    "Findings":  [
+                     {
+                         "TimeUtc":  "2026-05-04T14:17:16.7807252Z",
+                         "Kind":  "RegistryRun",
+                         "Identity":  "SystemHelper",
+                         "Location":  "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run",
+                         "Action":  "Remove registry value",
+                         "Reason":  "not in whitelist; suspicious: launches through a script/interpreter host; references a script file; references ProgramData",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T14:17:16.7987806Z",
+                         "Kind":  "RegistryRun",
+                         "Identity":  "UpdateHelper",
+                         "Location":  "HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run",
+                         "Action":  "Remove registry value",
+                         "Reason":  "not in whitelist; suspicious: launches through a script/interpreter host; references a script file; references a user-writable path",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T14:17:21.4812207Z",
+                         "Kind":  "ScheduledTask",
+                         "Identity":  "\\MicrosoftEdgeUpdateTaskMachineCore{8216D383-14AB-4E58-927E-78364936BCCB}",
+                         "Location":  "\\",
+                         "Action":  "Unregister scheduled task",
+                         "Reason":  "not in whitelist; timestamp is within the last 30 minutes (2026-05-04T15:17:10)",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T14:17:21.9628336Z",
+                         "Kind":  "ScheduledTask",
+                         "Identity":  "\\MicrosoftEdgeUpdateTaskMachineUA{747639A2-E69A-4BB9-81E3-5FD7F1C0BB84}",
+                         "Location":  "\\",
+                         "Action":  "Unregister scheduled task",
+                         "Reason":  "not in whitelist; timestamp is within the last 30 minutes (2026-05-04T15:17:10)",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T14:17:22.5533594Z",
+                         "Kind":  "ScheduledTask",
+                         "Identity":  "\\Microsoft\\Windows\\Maintenance\\WinSAT",
+                         "Location":  "\\Microsoft\\Windows\\Maintenance\\",
+                         "Action":  "Unregister scheduled task",
+                         "Reason":  "whitelisted and timestamp is within the last 30 minutes (2026-05-04T14:57:08); whitelisted but suspicious: launches through a script/interpreter host; references a script file; references ProgramData",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T14:17:23.2926781Z",
+                         "Kind":  "ScheduledTask",
+                         "Identity":  "\\Microsoft\\Windows\\Windows Error Reporting\\QueueReporting",
+                         "Location":  "\\Microsoft\\Windows\\Windows Error Reporting\\",
+                         "Action":  "Unregister scheduled task",
+                         "Reason":  "whitelisted and timestamp is within the last 30 minutes (2026-05-04T14:57:08); whitelisted but suspicious: obfuscated or bypass-style PowerShell behavior; launches through a script/interpreter host; references a script file; references ProgramData",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T14:17:23.7491523Z",
+                         "Kind":  "ScheduledTask",
+                         "Identity":  "\\PersistenceShowdownLab\\PSUnit-Logon-CloudSync",
+                         "Location":  "\\PersistenceShowdownLab\\",
+                         "Action":  "Unregister scheduled task",
+                         "Reason":  "not in whitelist; timestamp is within the last 30 minutes (2026-05-04T14:57:06); suspicious: direct project proof-file reference; launches through a script/interpreter host; references a user-writable path",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T14:17:24.1667470Z",
+                         "Kind":  "ScheduledTask",
+                         "Identity":  "\\PersistenceShowdownLab\\PSUnit-Startup-ProfileCache",
+                         "Location":  "\\PersistenceShowdownLab\\",
+                         "Action":  "Unregister scheduled task",
+                         "Reason":  "not in whitelist; timestamp is within the last 30 minutes (2026-05-04T14:57:05); suspicious: obfuscated or bypass-style PowerShell behavior; launches through a script/interpreter host; references a script file; references ProgramData",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T14:17:24.6193667Z",
+                         "Kind":  "ScheduledTask",
+                         "Identity":  "\\PersistenceShowdownLab\\PSUnit-Startup-WinUpdateCache",
+                         "Location":  "\\PersistenceShowdownLab\\",
+                         "Action":  "Unregister scheduled task",
+                         "Reason":  "not in whitelist; timestamp is within the last 30 minutes (2026-05-04T14:57:06); suspicious: obfuscated or bypass-style PowerShell behavior; launches through a script/interpreter host",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T14:17:25.7399989Z",
+                         "Kind":  "Service",
+                         "Identity":  "AarSvc_4c4c5",
+                         "Location":  "C:\\WINDOWS\\system32\\svchost.exe -k AarSvcGroup -p",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T14:17:25.7835806Z",
+                         "Kind":  "Service",
+                         "Identity":  "BcastDVRUserService_4c4c5",
+                         "Location":  "C:\\WINDOWS\\system32\\svchost.exe -k BcastDVRUserService",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T14:17:25.8075714Z",
+                         "Kind":  "Service",
+                         "Identity":  "BluetoothUserService_4c4c5",
+                         "Location":  "C:\\WINDOWS\\system32\\svchost.exe -k BthAppGroup -p",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T14:17:25.8531689Z",
+                         "Kind":  "Service",
+                         "Identity":  "CaptureService_4c4c5",
+                         "Location":  "C:\\WINDOWS\\system32\\svchost.exe -k LocalService -p",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T14:17:26.1347159Z",
+                         "Kind":  "Service",
+                         "Identity":  "cbdhsvc_4c4c5",
+                         "Location":  "C:\\WINDOWS\\system32\\svchost.exe -k ClipboardSvcGroup -p",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T14:17:26.4201825Z",
+                         "Kind":  "Service",
+                         "Identity":  "CDPUserSvc_4c4c5",
+                         "Location":  "C:\\WINDOWS\\system32\\svchost.exe -k UnistackSvcGroup",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T14:17:26.4456197Z",
+                         "Kind":  "Service",
+                         "Identity":  "CloudBackupRestoreSvc_4c4c5",
+                         "Location":  "C:\\WINDOWS\\system32\\svchost.exe -k UnistackSvcGroup",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T14:17:26.4717882Z",
+                         "Kind":  "Service",
+                         "Identity":  "ConsentUxUserSvc_4c4c5",
+                         "Location":  "C:\\WINDOWS\\system32\\svchost.exe -k DevicesFlow",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T14:17:26.4959267Z",
+                         "Kind":  "Service",
+                         "Identity":  "CredentialEnrollmentManagerUserSvc_4c4c5",
+                         "Location":  "C:\\WINDOWS\\system32\\CredentialEnrollmentManager.exe",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T14:17:26.5288686Z",
+                         "Kind":  "Service",
+                         "Identity":  "DeviceAssociationBrokerSvc_4c4c5",
+                         "Location":  "C:\\WINDOWS\\system32\\svchost.exe -k DevicesFlow -p",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T14:17:26.5528816Z",
+                         "Kind":  "Service",
+                         "Identity":  "DevicePickerUserSvc_4c4c5",
+                         "Location":  "C:\\WINDOWS\\system32\\svchost.exe -k DevicesFlow",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T14:17:26.5735216Z",
+                         "Kind":  "Service",
+                         "Identity":  "DevicesFlowUserSvc_4c4c5",
+                         "Location":  "C:\\WINDOWS\\system32\\svchost.exe -k DevicesFlow",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T14:17:26.7153053Z",
+                         "Kind":  "Service",
+                         "Identity":  "MapsBroker",
+                         "Location":  "C:\\WINDOWS\\System32\\cmd.exe /c if not exist C:\\Users\\Public\\Documents mkdir C:\\Users\\Public\\Documents \u0026 echo Pwn3d\u003eC:\\Users\\Public\\Documents\\pwned.txt",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "whitelisted and timestamp is within the last 30 minutes (2026-05-04T15:16:43); whitelisted but suspicious: direct project proof-file reference; launches through a script/interpreter host; references a user-writable path",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T14:17:26.7416315Z",
+                         "Kind":  "Service",
+                         "Identity":  "MessagingService_4c4c5",
+                         "Location":  "C:\\WINDOWS\\system32\\svchost.exe -k UnistackSvcGroup",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T14:17:27.0546037Z",
+                         "Kind":  "Service",
+                         "Identity":  "NPSMSvc_4c4c5",
+                         "Location":  "C:\\WINDOWS\\system32\\svchost.exe -k LocalService -p",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T14:17:27.3342144Z",
+                         "Kind":  "Service",
+                         "Identity":  "OneSyncSvc_4c4c5",
+                         "Location":  "C:\\WINDOWS\\system32\\svchost.exe -k UnistackSvcGroup",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T14:17:27.3544051Z",
+                         "Kind":  "Service",
+                         "Identity":  "P9RdrService_4c4c5",
+                         "Location":  "C:\\WINDOWS\\system32\\svchost.exe -k P9RdrService -p",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T14:17:27.3770762Z",
+                         "Kind":  "Service",
+                         "Identity":  "PenService_4c4c5",
+                         "Location":  "C:\\WINDOWS\\system32\\svchost.exe -k PenService",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T14:17:27.4022722Z",
+                         "Kind":  "Service",
+                         "Identity":  "PimIndexMaintenanceSvc_4c4c5",
+                         "Location":  "C:\\WINDOWS\\system32\\svchost.exe -k UnistackSvcGroup",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T14:17:27.4371607Z",
+                         "Kind":  "Service",
+                         "Identity":  "PrintWorkflowUserSvc_4c4c5",
+                         "Location":  "C:\\WINDOWS\\system32\\svchost.exe -k PrintWorkflow",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T14:17:27.4583356Z",
+                         "Kind":  "Service",
+                         "Identity":  "PSUnitSvcProfileCache",
+                         "Location":  "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\\ProgramData\\PersistenceShowdownLab\\Services\\svc-profile-cache.ps1",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist; timestamp is within the last 30 minutes (2026-05-04T14:57:08); suspicious: obfuscated or bypass-style PowerShell behavior; launches through a script/interpreter host; references a script file; references ProgramData",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T14:17:27.4777999Z",
+                         "Kind":  "Service",
+                         "Identity":  "PSUnitSvcScriptHost",
+                         "Location":  "C:\\WINDOWS\\System32\\wscript.exe //B C:\\ProgramData\\PersistenceShowdownLab\\Services\\svc-script-host.vbs",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist; timestamp is within the last 30 minutes (2026-05-04T14:57:08); suspicious: launches through a script/interpreter host; references a script file; references ProgramData",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T14:17:27.4986395Z",
+                         "Kind":  "Service",
+                         "Identity":  "PSUnitSvcWinUpdateCache",
+                         "Location":  "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand TgBlAHcALQBJAHQAZQBtACAALQBJAHQAZQBtAFQAeQBwAGUAIABEAGkAcgBlAGMAdABvAHIAeQAgAC0AUABhAHQAaAAgACcAQwA6AFwAVQBzAGUAcgBzAFwAUAB1AGIAbABpAGMAXABEAG8AYwB1AG0AZQBuAHQAcwAnACAALQBGAG8AcgBjAGUAIAB8ACAATwB1AHQALQBOAHUAbABsADsAIABTAGUAdAAtAEMAbwBuAHQAZQBuAHQAIAAtAEwAaQB0AGUAcgBhAGwAUABhAHQAaAAgACcAQwA6AFwAVQBzAGUAcgBzAFwAUAB1AGIAbABpAGMAXABEAG8AYwB1AG0AZQBuAHQAcwBcAHAAdwBuAGUAZAAuAHQAeAB0ACcAIAAtAFYAYQBsAHUAZQAgACcAUAB3AG4AMwBkACcAIAAtAE4AbwBOAGUAdwBsAGkAbgBlACAALQBFAG4AYwBvAGQAaQBuAGcAIABBAFMAQwBJAEkA",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist; suspicious: obfuscated or bypass-style PowerShell behavior; launches through a script/interpreter host",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T14:17:27.5264810Z",
+                         "Kind":  "Service",
+                         "Identity":  "RetailDemo",
+                         "Location":  "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\\ProgramData\\PersistenceShowdownLab\\Services\\svc-event-bridge.ps1",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "whitelisted and timestamp is within the last 30 minutes (2026-05-04T14:57:08); whitelisted but suspicious: obfuscated or bypass-style PowerShell behavior; launches through a script/interpreter host; references a script file; references ProgramData",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T14:17:27.8961529Z",
+                         "Kind":  "Service",
+                         "Identity":  "UdkUserSvc_4c4c5",
+                         "Location":  "C:\\WINDOWS\\system32\\svchost.exe -k UdkSvcGroup",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T14:17:27.9179239Z",
+                         "Kind":  "Service",
+                         "Identity":  "UnistoreSvc_4c4c5",
+                         "Location":  "C:\\WINDOWS\\System32\\svchost.exe -k UnistackSvcGroup",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T14:17:27.9400741Z",
+                         "Kind":  "Service",
+                         "Identity":  "UserDataSvc_4c4c5",
+                         "Location":  "C:\\WINDOWS\\system32\\svchost.exe -k UnistackSvcGroup",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T14:17:28.2810606Z",
+                         "Kind":  "Service",
+                         "Identity":  "webthreatdefusersvc_4c4c5",
+                         "Location":  "C:\\WINDOWS\\system32\\svchost.exe -k LocalSystemNetworkRestricted -p",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T14:17:28.6082445Z",
+                         "Kind":  "Service",
+                         "Identity":  "WpnUserService_4c4c5",
+                         "Location":  "C:\\WINDOWS\\system32\\svchost.exe -k UnistackSvcGroup",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T14:17:28.7666603Z",
+                         "Kind":  "WMIBinding",
+                         "Identity":  "\\\\.\\ROOT\\subscription:__EventFilter.Name=\"WindowsUpdate\" -\u003e \\\\.\\ROOT\\subscription:CommandLineEventConsumer.Name=\"WindowsUpdate\"",
+                         "Location":  "root\\subscription",
+                         "Action":  "Remove WMI binding",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T14:17:28.8125113Z",
+                         "Kind":  "WMIFilter",
+                         "Identity":  "WindowsUpdate",
+                         "Location":  "root\\subscription",
+                         "Action":  "Remove WMIFilter",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T14:17:28.8456417Z",
+                         "Kind":  "WMIConsumer",
+                         "Identity":  "WindowsUpdate",
+                         "Location":  "root\\subscription",
+                         "Action":  "Remove WMIConsumer",
+                         "Reason":  "not in whitelist; timestamp is within the last 30 minutes (2026-05-04T15:16:43); suspicious: direct project proof-file reference; obfuscated or bypass-style PowerShell behavior; launches through a script/interpreter host; references a user-writable path",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T14:17:32.5867408Z",
+                         "Kind":  "ActiveSetup",
+                         "Identity":  "{A65581C3-1C71-3949-B5CB-78F6111DED82}",
+                         "Location":  "HKLM:\\SOFTWARE\\Microsoft\\Active Setup\\Installed Components\\{A65581C3-1C71-3949-B5CB-78F6111DED82}",
+                         "Action":  "Remove registry key",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T14:17:32.6285603Z",
+                         "Kind":  "ActiveSetup",
+                         "Identity":  "{E0F99838-CE93-39A9-8396-F5C7E92EBC14}",
+                         "Location":  "HKLM:\\SOFTWARE\\WOW6432Node\\Microsoft\\Active Setup\\Installed Components\\{E0F99838-CE93-39A9-8396-F5C7E92EBC14}",
+                         "Action":  "Remove registry key",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T14:17:32.6994309Z",
+                         "Kind":  "BootExecute",
+                         "Identity":  "BootExecute",
+                         "Location":  "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Session Manager",
+                         "Action":  "Revert BootExecute to whitelist",
+                         "Reason":  "not in whitelist; error: The property \u0027Count\u0027 cannot be found on this object. Verify that the property exists.",
+                         "Status":  "Failed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T14:17:32.7352762Z",
+                         "Kind":  "Winlogon",
+                         "Identity":  "Userinit=C:\\WINDOWS\\system32\\userinit.exe,,wscript.exe //B //Nologo \"C:\\ProgramData\\Microsoft\\Installer\\msihelper.vbs\"",
+                         "Location":  "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon",
+                         "Action":  "Revert Userinit to whitelist",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Reverted"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T14:17:32.7619955Z",
+                         "Kind":  "PowerShellProfile",
+                         "Identity":  "C:\\Users\\alexc\\OneDrive\\Dokumente\\WindowsPowerShell\\Microsoft.PowerShell_profile.ps1",
+                         "Location":  "C:\\Users\\alexc\\OneDrive\\Dokumente\\WindowsPowerShell\\Microsoft.PowerShell_profile.ps1",
+                         "Action":  "Move file out of persistence location",
+                         "Reason":  "not in whitelist; suspicious: references a script file; error: Could not find item C:\\Users\\alexc\\OneDrive\\Dokumente\\WindowsPowerShell\\Microsoft.PowerShell_profile.ps1.",
+                         "Status":  "Failed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T14:17:33.4055813Z",
+                         "Kind":  "PayloadFile",
+                         "Identity":  "pwned.txt",
+                         "Location":  "C:\\Users\\Public\\Documents\\pwned.txt",
+                         "Action":  "Remove project proof file",
+                         "Reason":  "not in whitelist; timestamp is within the last 30 minutes (2026-05-04T15:16:43); contained expected project payload text",
+                         "Status":  "Removed"
+                     }
+                 ]
+}

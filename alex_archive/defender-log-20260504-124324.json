@@ -1,0 +1,36 @@
+﻿{
+    "TimeUtc":  "2026-05-04T11:43:31.8218616Z",
+    "DryRun":  false,
+    "BaselinePath":  "C:\\Users\\alexc\\OneDrive\\Desktop\\whitelist.json",
+    "QuarantinePath":  "",
+    "FindingCount":  3,
+    "Findings":  [
+                     {
+                         "TimeUtc":  "2026-05-04T11:43:27.2010803Z",
+                         "Kind":  "Service",
+                         "Identity":  "CredentialEnrollmentManagerUserSvc_48b7f",
+                         "Location":  "C:\\WINDOWS\\system32\\CredentialEnrollmentManager.exe",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T11:43:27.2348979Z",
+                         "Kind":  "Service",
+                         "Identity":  "DeviceAssociationBrokerSvc_48b7f",
+                         "Location":  "C:\\WINDOWS\\system32\\svchost.exe -k DevicesFlow -p",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T11:43:27.4421447Z",
+                         "Kind":  "Service",
+                         "Identity":  "PrintWorkflowUserSvc_48b7f",
+                         "Location":  "C:\\WINDOWS\\system32\\svchost.exe -k PrintWorkflow",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     }
+                 ]
+}

@@ -1,0 +1,252 @@
+﻿{
+    "TimeUtc":  "2026-05-04T11:06:40.5505365Z",
+    "DryRun":  false,
+    "BaselinePath":  "C:\\Users\\alexc\\OneDrive\\Desktop\\whitelist.json",
+    "QuarantinePath":  "",
+    "FindingCount":  27,
+    "Findings":  [
+                     {
+                         "TimeUtc":  "2026-05-04T11:06:29.0063872Z",
+                         "Kind":  "ScheduledTask",
+                         "Identity":  "\\MicrosoftEdgeUpdateTaskMachineCore{BF4B9678-FE6E-4F1E-BCF6-37D94FCC32C5}",
+                         "Location":  "\\",
+                         "Action":  "Unregister scheduled task",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T11:06:29.5894632Z",
+                         "Kind":  "ScheduledTask",
+                         "Identity":  "\\MicrosoftEdgeUpdateTaskMachineUA{6FB7F854-4BDD-431D-9351-B4983FF6214C}",
+                         "Location":  "\\",
+                         "Action":  "Unregister scheduled task",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T11:06:31.1284465Z",
+                         "Kind":  "Service",
+                         "Identity":  "AarSvc_48b7f",
+                         "Location":  "C:\\WINDOWS\\system32\\svchost.exe -k AarSvcGroup -p",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T11:06:31.1793623Z",
+                         "Kind":  "Service",
+                         "Identity":  "BcastDVRUserService_48b7f",
+                         "Location":  "C:\\WINDOWS\\system32\\svchost.exe -k BcastDVRUserService",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T11:06:31.2129049Z",
+                         "Kind":  "Service",
+                         "Identity":  "BluetoothUserService_48b7f",
+                         "Location":  "C:\\WINDOWS\\system32\\svchost.exe -k BthAppGroup -p",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T11:06:31.2484325Z",
+                         "Kind":  "Service",
+                         "Identity":  "CaptureService_48b7f",
+                         "Location":  "C:\\WINDOWS\\system32\\svchost.exe -k LocalService -p",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T11:06:31.5478932Z",
+                         "Kind":  "Service",
+                         "Identity":  "cbdhsvc_48b7f",
+                         "Location":  "C:\\WINDOWS\\system32\\svchost.exe -k ClipboardSvcGroup -p",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T11:06:31.8637294Z",
+                         "Kind":  "Service",
+                         "Identity":  "CDPUserSvc_48b7f",
+                         "Location":  "C:\\WINDOWS\\system32\\svchost.exe -k UnistackSvcGroup",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T11:06:32.1898541Z",
+                         "Kind":  "Service",
+                         "Identity":  "CloudBackupRestoreSvc_48b7f",
+                         "Location":  "C:\\WINDOWS\\system32\\svchost.exe -k UnistackSvcGroup",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T11:06:32.2400863Z",
+                         "Kind":  "Service",
+                         "Identity":  "ConsentUxUserSvc_48b7f",
+                         "Location":  "C:\\WINDOWS\\system32\\svchost.exe -k DevicesFlow",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T11:06:32.2708576Z",
+                         "Kind":  "Service",
+                         "Identity":  "CredentialEnrollmentManagerUserSvc_48b7f",
+                         "Location":  "C:\\WINDOWS\\system32\\CredentialEnrollmentManager.exe",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T11:06:32.3053164Z",
+                         "Kind":  "Service",
+                         "Identity":  "DeviceAssociationBrokerSvc_48b7f",
+                         "Location":  "C:\\WINDOWS\\system32\\svchost.exe -k DevicesFlow -p",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T11:06:32.3384585Z",
+                         "Kind":  "Service",
+                         "Identity":  "DevicePickerUserSvc_48b7f",
+                         "Location":  "C:\\WINDOWS\\system32\\svchost.exe -k DevicesFlow",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T11:06:32.3606198Z",
+                         "Kind":  "Service",
+                         "Identity":  "DevicesFlowUserSvc_48b7f",
+                         "Location":  "C:\\WINDOWS\\system32\\svchost.exe -k DevicesFlow",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T11:06:32.5336785Z",
+                         "Kind":  "Service",
+                         "Identity":  "MessagingService_48b7f",
+                         "Location":  "C:\\WINDOWS\\system32\\svchost.exe -k UnistackSvcGroup",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T11:06:32.8784919Z",
+                         "Kind":  "Service",
+                         "Identity":  "NPSMSvc_48b7f",
+                         "Location":  "C:\\WINDOWS\\system32\\svchost.exe -k LocalService -p",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T11:06:33.1763190Z",
+                         "Kind":  "Service",
+                         "Identity":  "OneSyncSvc_48b7f",
+                         "Location":  "C:\\WINDOWS\\system32\\svchost.exe -k UnistackSvcGroup",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T11:06:33.2134666Z",
+                         "Kind":  "Service",
+                         "Identity":  "P9RdrService_48b7f",
+                         "Location":  "C:\\WINDOWS\\system32\\svchost.exe -k P9RdrService -p",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T11:06:33.2512018Z",
+                         "Kind":  "Service",
+                         "Identity":  "PenService_48b7f",
+                         "Location":  "C:\\WINDOWS\\system32\\svchost.exe -k PenService",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T11:06:33.2927851Z",
+                         "Kind":  "Service",
+                         "Identity":  "PimIndexMaintenanceSvc_48b7f",
+                         "Location":  "C:\\WINDOWS\\system32\\svchost.exe -k UnistackSvcGroup",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T11:06:33.3315215Z",
+                         "Kind":  "Service",
+                         "Identity":  "PrintWorkflowUserSvc_48b7f",
+                         "Location":  "C:\\WINDOWS\\system32\\svchost.exe -k PrintWorkflow",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T11:06:33.7518232Z",
+                         "Kind":  "Service",
+                         "Identity":  "UdkUserSvc_48b7f",
+                         "Location":  "C:\\WINDOWS\\system32\\svchost.exe -k UdkSvcGroup",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T11:06:33.7882516Z",
+                         "Kind":  "Service",
+                         "Identity":  "UnistoreSvc_48b7f",
+                         "Location":  "C:\\WINDOWS\\System32\\svchost.exe -k UnistackSvcGroup",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T11:06:33.8320057Z",
+                         "Kind":  "Service",
+                         "Identity":  "UserDataSvc_48b7f",
+                         "Location":  "C:\\WINDOWS\\system32\\svchost.exe -k UnistackSvcGroup",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T11:06:34.2170847Z",
+                         "Kind":  "Service",
+                         "Identity":  "webthreatdefusersvc_48b7f",
+                         "Location":  "C:\\WINDOWS\\system32\\svchost.exe -k LocalSystemNetworkRestricted -p",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T11:06:34.6274939Z",
+                         "Kind":  "Service",
+                         "Identity":  "WpnUserService_48b7f",
+                         "Location":  "C:\\WINDOWS\\system32\\svchost.exe -k UnistackSvcGroup",
+                         "Action":  "Stop and delete service",
+                         "Reason":  "not in whitelist",
+                         "Status":  "Removed"
+                     },
+                     {
+                         "TimeUtc":  "2026-05-04T11:06:39.5162757Z",
+                         "Kind":  "IFEO",
+                         "Identity":  "IFEO",
+                         "Location":  "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options",
+                         "Action":  "Remove Debugger registry value",
+                         "Reason":  "error: The property \u0027Debugger\u0027 cannot be found on this object. Verify that the property exists.",
+                         "Status":  "Failed"
+                     }
+                 ]
+}

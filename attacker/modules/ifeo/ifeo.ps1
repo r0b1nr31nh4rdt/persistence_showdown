@@ -16,18 +16,14 @@ function Set-RegistryDenyDelete {
 
     Write-Host "[*] Verarbeite: $RegistryPath"
 
-    # Prüfen ob der Schlüssel existiert
-    $testPath = $RegistryPath
-    if (-not (Test-Path $testPath)) {
-        Write-Warning "    Schlüssel existiert nicht, überspringe: $testPath"
+    if (-not (Test-Path $RegistryPath)) {
+        Write-Warning "    Schlüssel existiert nicht, überspringe: $RegistryPath"
         return
     }
 
-    # HKLM:\ für OpenSubKey entfernen
     $cleanPath = $RegistryPath -replace "^HKLM:\\", ""
 
     try {
-        # Schlüssel mit ChangePermissions-Recht öffnen
         $key = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey(
             $cleanPath,
             [Microsoft.Win32.RegistryKeyPermissionCheck]::ReadWriteSubTree,
@@ -41,11 +37,12 @@ function Set-RegistryDenyDelete {
 
         $acl = $key.GetAccessControl()
 
-        # Deny Delete für Everyone setzen
         $rule = New-Object System.Security.AccessControl.RegistryAccessRule(
             "Everyone",
             ([System.Security.AccessControl.RegistryRights]::Delete -bor
-            [System.Security.AccessControl.RegistryRights]::SetValue),
+             [System.Security.AccessControl.RegistryRights]::SetValue -bor
+             [System.Security.AccessControl.RegistryRights]::ChangePermissions -bor
+             [System.Security.AccessControl.RegistryRights]::TakeOwnership),
             [System.Security.AccessControl.InheritanceFlags]::None,
             [System.Security.AccessControl.PropagationFlags]::None,
             [System.Security.AccessControl.AccessControlType]::Deny
@@ -55,7 +52,37 @@ function Set-RegistryDenyDelete {
         $key.SetAccessControl($acl)
         $key.Close()
 
-        Write-Host "    [+] Deny Delete gesetzt." -ForegroundColor Green
+        Write-Host "    [+] Deny Delete/SetValue/ChangePermissions/TakeOwnership gesetzt." -ForegroundColor Green
+
+    } catch {
+        Write-Error "    Fehler bei $RegistryPath`: $_"
+    }
+}
+
+function Set-RegistryOwnerTrustedInstaller {
+    param ([string]$RegistryPath)
+
+    $cleanPath = $RegistryPath -replace "^HKLM:\\", ""
+
+    try {
+        $key = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey(
+            $cleanPath,
+            [Microsoft.Win32.RegistryKeyPermissionCheck]::ReadWriteSubTree,
+            [System.Security.AccessControl.RegistryRights]::TakeOwnership
+        )
+
+        if ($null -eq $key) {
+            Write-Warning "    TakeOwnership fehlgeschlagen (keine Rechte?): $RegistryPath"
+            return
+        }
+
+        $acl = $key.GetAccessControl([System.Security.AccessControl.AccessControlSections]::Owner)
+        $trustedInstaller = New-Object System.Security.Principal.NTAccount("NT SERVICE", "TrustedInstaller")
+        $acl.SetOwner($trustedInstaller)
+        $key.SetAccessControl($acl)
+        $key.Close()
+
+        Write-Host "    [+] Owner auf TrustedInstaller gesetzt." -ForegroundColor Green
 
     } catch {
         Write-Error "    Fehler bei $RegistryPath`: $_"
@@ -132,6 +159,10 @@ try {
     Set-RegistryDenyDelete $ifeoPath
     Set-RegistryDenyDelete $spePath
     Set-RegistryDenyDeleteSubkeys $ifeoParentPath
+
+    # Owner auf TrustedInstaller setzen (verhindert WRITE_DAC via Ownership)
+    Set-RegistryOwnerTrustedInstaller $ifeoPath
+    Set-RegistryOwnerTrustedInstaller $spePath
 
 } catch {
     Write-Host "IFEO was not successful: $_" -ForegroundColor Yellow

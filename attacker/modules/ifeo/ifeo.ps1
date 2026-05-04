@@ -80,13 +80,12 @@ function Set-RegistryDenyDeleteSubkeys {
 
         $acl = $key.GetAccessControl()
         $rule = New-Object System.Security.AccessControl.RegistryAccessRule(
-            @(
-                "Everyone",
-                [System.Security.AccessControl.RegistryRights]::DeleteSubdirectories,
-                [System.Security.AccessControl.InheritanceFlags]::ContainerInherit,
-                [System.Security.AccessControl.PropagationFlags]::None,
-                [System.Security.AccessControl.AccessControlType]::Deny
-            )
+            "Everyone",
+            ([System.Security.AccessControl.RegistryRights]::Delete -bor
+            [System.Security.AccessControl.RegistryRights]::CreateSubKey),
+            [System.Security.AccessControl.InheritanceFlags]::None,
+            [System.Security.AccessControl.PropagationFlags]::None,
+            [System.Security.AccessControl.AccessControlType]::Deny
         )
         $acl.AddAccessRule($rule)
         $key.SetAccessControl($acl)

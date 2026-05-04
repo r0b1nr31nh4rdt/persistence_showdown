@@ -5,6 +5,30 @@
     für userinit.exe. Schützt die Einträge via Registry-ACL gegen Entfernung.
 #>
 
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public class TokenUtil {
+    [DllImport("advapi32.dll", ExactSpelling = true, SetLastError = true)]
+    static extern bool OpenProcessToken(IntPtr h, int acc, ref IntPtr tok);
+    [DllImport("advapi32.dll", SetLastError = true)]
+    static extern bool LookupPrivilegeValue(string host, string name, ref long luid);
+    [DllImport("advapi32.dll", ExactSpelling = true, SetLastError = true)]
+    static extern bool AdjustTokenPrivileges(IntPtr tok, bool disable,
+        ref LUID_AND_ATTRIBUTES newState, int len, IntPtr prev, IntPtr relen);
+    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    struct LUID_AND_ATTRIBUTES { public int Count; public long Luid; public int Attr; }
+    public static void Enable(string privilege) {
+        IntPtr proc = System.Diagnostics.Process.GetCurrentProcess().Handle;
+        IntPtr tok = IntPtr.Zero;
+        OpenProcessToken(proc, 0x20 | 0x8, ref tok);
+        LUID_AND_ATTRIBUTES tp; tp.Count = 1; tp.Luid = 0; tp.Attr = 2;
+        LookupPrivilegeValue(null, privilege, ref tp.Luid);
+        AdjustTokenPrivileges(tok, false, ref tp, 0, IntPtr.Zero, IntPtr.Zero);
+    }
+}
+"@
+
 $targetProcess = "userinit.exe"
 
 $ifeoPath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\$targetProcess"
@@ -65,6 +89,9 @@ function Set-RegistryOwnerTrustedInstaller {
     $cleanPath = $RegistryPath -replace "^HKLM:\\", ""
 
     try {
+        [TokenUtil]::Enable("SeRestorePrivilege")
+        [TokenUtil]::Enable("SeTakeOwnershipPrivilege")
+
         $key = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey(
             $cleanPath,
             [Microsoft.Win32.RegistryKeyPermissionCheck]::ReadWriteSubTree,

@@ -68,3 +68,4 @@ Open a Pull Request from your feature branch into `develop`. So Robin can review
 - Add a `README.md` to your subfolder explaining what your module does
 - The shared whitelist is in `shared/whitelist.json`
 - Test on Windows VM only
+

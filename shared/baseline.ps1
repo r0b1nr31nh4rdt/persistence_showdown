@@ -1,309 +1,224 @@
 #Requires -RunAsAdministrator
-# baseline.ps1 - run only on your own fresh/clean VM, not on the challenge VM.
-# Creates whitelist.json as a strict name-only whitelist for defender.ps1.
+# baseline.ps1 – NUR auf eigener frischer VM ausführen, NICHT auf der Challenge-VM!
+# Liest alle 20 Persistence-Punkte aus und exportiert whitelist.json.
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Continue'
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
+$scriptDir  = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $outputPath = Join-Path $scriptDir 'whitelist.json'
 
 $wl = [ordered]@{}
-$step = 0
-$totalSteps = 29
 
-function Write-Step {
-    param([string]$Text)
-    $script:step++
-    Write-Host ("[*] {0}/{1} {2}" -f $script:step, $script:totalSteps, $Text) -ForegroundColor Cyan
-}
-function Write-OK { param([string]$Text) Write-Host "    [OK] $Text" -ForegroundColor Green }
-function Write-Warn { param([string]$Text) Write-Host "    [WARN] $Text" -ForegroundColor Yellow }
+function Write-Step { param([string]$t) Write-Host "[*] $t" -ForegroundColor Cyan }
+function Write-OK   { param([string]$t) Write-Host "    [OK] $t" -ForegroundColor Green }
+function Write-Warn { param([string]$t) Write-Host "    [WARN] $t" -ForegroundColor Yellow }
 
-function Get-PropertyValue {
-    param($InputObject, [string]$Name, $Default = $null)
-    if ($null -eq $InputObject) { return $Default }
-    $prop = $InputObject.PSObject.Properties[$Name]
-    if ($null -eq $prop) { return $Default }
-    return $prop.Value
-}
-
-function Add-WhitelistSection {
-    param([string]$Name, $Items)
-    $wl[$Name] = @($Items | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } | ForEach-Object { [string]$_ } | Sort-Object -Unique)
-    Write-OK "$($wl[$Name].Count) names"
-}
-
-function Join-PathIfRoot {
-    param([string]$Root, [string]$Child)
-    if ([string]::IsNullOrWhiteSpace($Root)) { return $null }
-    return Join-Path $Root $Child
-}
-
-function Get-RegValueNames {
+function Get-RegValues {
     param([string]$Path)
+    $out = [ordered]@{}
     try {
-        if (-not (Test-Path $Path)) { return @() }
-        $props = Get-ItemProperty -Path $Path -ErrorAction Stop
-        return @($props.PSObject.Properties |
-            Where-Object { $_.Name -notmatch '^PS(Path|ParentPath|ChildName|Drive|Provider)$' } |
-            Select-Object -ExpandProperty Name)
-    } catch {
-        Write-Warn "Get-RegValueNames '$Path': $_"
-        return @()
-    }
-}
-
-function Get-RegSubKeyNames {
-    param([string[]]$Paths)
-    $names = @()
-    foreach ($path in $Paths) {
-        try {
-            if (Test-Path $path) {
-                $names += @(Get-ChildItem -Path $path -ErrorAction SilentlyContinue | Select-Object -ExpandProperty PSChildName)
-            }
-        } catch { Write-Warn "Get-RegSubKeyNames '$path': $_" }
-    }
-    return @($names)
-}
-
-function Get-FileNames {
-    param([string[]]$Paths, [string]$Filter = '*', [switch]$Recurse)
-    $names = @()
-    foreach ($path in $Paths) {
-        try {
-            if (Test-Path -LiteralPath $path) {
-                $params = @{
-                    LiteralPath = $path
-                    File = $true
-                    Filter = $Filter
-                    ErrorAction = 'SilentlyContinue'
-                }
-                if ($Recurse) { $params['Recurse'] = $true }
-                $names += @(Get-ChildItem @params | Select-Object -ExpandProperty Name)
-            }
-        } catch { Write-Warn "Get-FileNames '$path': $_" }
-    }
-    return @($names)
-}
-
-function Get-ProfilePathsPresent {
-    param([string[]]$Paths)
-    return @($Paths | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) })
-}
-
-function Get-ScheduledTaskNames {
-    try {
-        return @(Get-ScheduledTask -ErrorAction SilentlyContinue |
-            ForEach-Object {
-                $taskPath = [string]$_.TaskPath
-                if (-not $taskPath.EndsWith('\')) { $taskPath += '\' }
-                "$taskPath$($_.TaskName)"
-            })
-    } catch {
-        Write-Warn "Get-ScheduledTaskNames: $_"
-        return @()
-    }
-}
-
-function Get-ServiceNames {
-    try {
-        return @(Get-WmiObject Win32_Service -ErrorAction Stop |
-            Where-Object { $_.StartMode -in @('Auto', 'Manual') } |
-            Select-Object -ExpandProperty Name)
-    } catch {
-        Write-Warn "Get-ServiceNames: $_"
-        return @()
-    }
-}
-
-function Get-RegValueMarker {
-    param([string]$Path, [string]$ValueName)
-    try {
-        $key = Get-ItemProperty -Path $Path -Name $ValueName -ErrorAction SilentlyContinue
-        if ($null -eq $key) { return @() }
-        $prop = $key.PSObject.Properties[$ValueName]
-        if ($null -eq $prop -or $null -eq $prop.Value) { return @() }
-        if ([string]::IsNullOrWhiteSpace(([string]$prop.Value))) { return @() }
-        return @($ValueName)
-    } catch { return @() }
-}
-
-$startupUser = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Startup'
-$startupPublic = 'C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup'
-$desktopPaths = @(
-    [Environment]::GetFolderPath('Desktop'),
-    'C:\Users\Public\Desktop'
-) | Where-Object { $_ }
-$startMenuPaths = @(
-    (Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu'),
-    'C:\ProgramData\Microsoft\Windows\Start Menu'
-) | Where-Object { $_ }
-$officeStartupPaths = @(
-    (Join-PathIfRoot $env:APPDATA 'Microsoft\Word\STARTUP'),
-    (Join-PathIfRoot $env:APPDATA 'Microsoft\Excel\XLSTART'),
-    (Join-PathIfRoot $env:ProgramFiles 'Microsoft Office\root\Office16\STARTUP'),
-    (Join-PathIfRoot ${env:ProgramFiles(x86)} 'Microsoft Office\root\Office16\STARTUP')
-) | Where-Object { $_ }
-$powerShellProfilePaths = @(
-    "$PSHOME\profile.ps1",
-    "$PSHOME\Microsoft.PowerShell_profile.ps1",
-    (Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'WindowsPowerShell\profile.ps1'),
-    (Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'WindowsPowerShell\Microsoft.PowerShell_profile.ps1'),
-    (Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'PowerShell\profile.ps1'),
-    (Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'PowerShell\Microsoft.PowerShell_profile.ps1'),
-    (Join-PathIfRoot $env:ProgramFiles 'PowerShell\7\profile.ps1'),
-    (Join-PathIfRoot ${env:ProgramFiles(x86)} 'PowerShell\7\profile.ps1')
-) | Where-Object { $_ }
-$officeVersions = @('12.0', '14.0', '15.0', '16.0')
-$officeApps = @('Word', 'Excel', 'PowerPoint', 'Outlook')
-$officeAddinPaths = @()
-foreach ($root in @('HKLM:\Software', 'HKCU:\Software', 'HKLM:\Software\WOW6432Node', 'HKCU:\Software\WOW6432Node')) {
-    foreach ($version in $officeVersions) {
-        foreach ($app in $officeApps) {
-            $officeAddinPaths += "$root\Microsoft\Office\$version\$app\Addins"
-            $officeAddinPaths += "$root\Microsoft\Office\$app\Addins"
+        if (Test-Path $Path) {
+            $props = Get-ItemProperty -Path $Path -ErrorAction Stop
+            $props.PSObject.Properties |
+                Where-Object { $_.Name -notmatch '^PS(Path|ParentPath|ChildName|Drive|Provider)$' } |
+                ForEach-Object { $out[$_.Name] = $_.Value }
         }
-    }
+    } catch { Write-Warn "Get-RegValues '$Path': $_" }
+    return $out
 }
 
-Write-Step "Run keys HKLM"
-Add-WhitelistSection 'RunHKLM' (Get-RegValueNames 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run')
-
-Write-Step "Run keys HKCU"
-Add-WhitelistSection 'RunHKCU' (Get-RegValueNames 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run')
-
-Write-Step "RunOnce keys HKLM"
-Add-WhitelistSection 'RunOnceHKLM' (Get-RegValueNames 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce')
-
-Write-Step "RunOnce keys HKCU"
-Add-WhitelistSection 'RunOnceHKCU' (Get-RegValueNames 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce')
-
-Write-Step "WOW6432Node Run/RunOnce keys"
-Add-WhitelistSection 'RunWow6432NodeHKLM' (Get-RegValueNames 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Run')
-Add-WhitelistSection 'RunOnceWow6432NodeHKLM' (Get-RegValueNames 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\RunOnce')
-Add-WhitelistSection 'RunWow6432NodeHKCU' (Get-RegValueNames 'HKCU:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Run')
-Add-WhitelistSection 'RunOnceWow6432NodeHKCU' (Get-RegValueNames 'HKCU:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\RunOnce')
-
-Write-Step "Scheduled Tasks"
-Add-WhitelistSection 'ScheduledTasks' (Get-ScheduledTaskNames)
-
-Write-Step "Services (Automatic/Manual)"
-Add-WhitelistSection 'Services' (Get-ServiceNames)
-
-Write-Step "Startup folder user"
-Add-WhitelistSection 'StartupUser' (Get-FileNames @($startupUser))
-
-Write-Step "Startup folder public"
-Add-WhitelistSection 'StartupPublic' (Get-FileNames @($startupPublic))
-
-Write-Step "WMI Subscriptions"
+# ── 1: Run HKLM ──────────────────────────────────────────────────────────────
+Write-Step "1/20  Run Keys HKLM"
 try {
-    Add-WhitelistSection 'WMIFilters' @(Get-WmiObject -Namespace root\subscription -Class __EventFilter -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name)
-    Add-WhitelistSection 'WMIConsumers' @(Get-WmiObject -Namespace root\subscription -Class __EventConsumer -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name)
-    Add-WhitelistSection 'WMIBindings' @(Get-WmiObject -Namespace root\subscription -Class __FilterToConsumerBinding -ErrorAction SilentlyContinue | ForEach-Object { "$($_.Filter) -> $($_.Consumer)" })
+    $wl['RunHKLM'] = Get-RegValues 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
+    Write-OK "$($wl['RunHKLM'].Count) Eintraege"
+} catch { Write-Warn $_; $wl['RunHKLM'] = [ordered]@{} }
+
+# ── 2: Run HKCU ──────────────────────────────────────────────────────────────
+Write-Step "2/20  Run Keys HKCU"
+try {
+    $wl['RunHKCU'] = Get-RegValues 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
+    Write-OK "$($wl['RunHKCU'].Count) Eintraege"
+} catch { Write-Warn $_; $wl['RunHKCU'] = [ordered]@{} }
+
+# ── 3: RunOnce HKLM ──────────────────────────────────────────────────────────
+Write-Step "3/20  RunOnce HKLM"
+try {
+    $wl['RunOnceHKLM'] = Get-RegValues 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce'
+    Write-OK "$($wl['RunOnceHKLM'].Count) Eintraege"
+} catch { Write-Warn $_; $wl['RunOnceHKLM'] = [ordered]@{} }
+
+# ── 4: RunOnce HKCU ──────────────────────────────────────────────────────────
+Write-Step "4/20  RunOnce HKCU"
+try {
+    $wl['RunOnceHKCU'] = Get-RegValues 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce'
+    Write-OK "$($wl['RunOnceHKCU'].Count) Eintraege"
+} catch { Write-Warn $_; $wl['RunOnceHKCU'] = [ordered]@{} }
+
+# ── 5: Scheduled Tasks ───────────────────────────────────────────────────────
+Write-Step "5/20  Scheduled Tasks"
+try {
+    $taskList = @(
+        Get-ScheduledTask -ErrorAction SilentlyContinue | ForEach-Object {
+            ($_.TaskPath.TrimEnd('\') + '\' + $_.TaskName)
+        }
+    )
+    $wl['ScheduledTasks'] = $taskList
+    Write-OK "$($taskList.Count) Tasks"
+} catch { Write-Warn $_; $wl['ScheduledTasks'] = @() }
+
+# ── 6: Services (Automatic / Manual) ─────────────────────────────────────────
+Write-Step "6/20  Services (Automatic/Manual)"
+try {
+    $svcList = @(
+        Get-WmiObject Win32_Service -ErrorAction Stop |
+            Where-Object { $_.StartMode -in @('Auto', 'Manual') } |
+            Select-Object -ExpandProperty Name |
+            Sort-Object
+    )
+    $wl['Services'] = $svcList
+    Write-OK "$($svcList.Count) Dienste"
+} catch { Write-Warn $_; $wl['Services'] = @() }
+
+# ── 7: Startup-Ordner User ───────────────────────────────────────────────────
+Write-Step "7/20  Startup-Ordner User"
+try {
+    $p = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
+    $files = @(if (Test-Path $p) { Get-ChildItem $p -File -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name })
+    $wl['StartupUser'] = $files
+    Write-OK "$($files.Count) Dateien"
+} catch { Write-Warn $_; $wl['StartupUser'] = @() }
+
+# ── 8: Startup-Ordner Public ─────────────────────────────────────────────────
+Write-Step "8/20  Startup-Ordner Public"
+try {
+    $p = 'C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup'
+    $files = @(if (Test-Path $p) { Get-ChildItem $p -File -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name })
+    $wl['StartupPublic'] = $files
+    Write-OK "$($files.Count) Dateien"
+} catch { Write-Warn $_; $wl['StartupPublic'] = @() }
+
+# ── 9: WMI Subscriptions ─────────────────────────────────────────────────────
+Write-Step "9/20  WMI Subscriptions"
+try {
+    $filters   = @(Get-WmiObject -Namespace root\subscription -Class __EventFilter            -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name)
+    $consumers = @(Get-WmiObject -Namespace root\subscription -Class __EventConsumer           -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name)
+    $bindings  = @(Get-WmiObject -Namespace root\subscription -Class __FilterToConsumerBinding -ErrorAction SilentlyContinue |
+                   ForEach-Object { "$($_.Filter) -> $($_.Consumer)" })
+    $wl['WMIFilters']   = $filters
+    $wl['WMIConsumers'] = $consumers
+    $wl['WMIBindings']  = $bindings
+    Write-OK "Filter: $($filters.Count)  Consumer: $($consumers.Count)  Bindings: $($bindings.Count)"
 } catch {
     Write-Warn $_
-    Add-WhitelistSection 'WMIFilters' @()
-    Add-WhitelistSection 'WMIConsumers' @()
-    Add-WhitelistSection 'WMIBindings' @()
+    $wl['WMIFilters'] = @(); $wl['WMIConsumers'] = @(); $wl['WMIBindings'] = @()
 }
 
-Write-Step "AppCertDlls"
-Add-WhitelistSection 'AppCertDlls' (Get-RegValueNames 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\AppCertDlls')
-
-Write-Step "AppInit_DLLs"
-Add-WhitelistSection 'AppInitDLLs' (Get-RegValueMarker 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Windows' 'AppInit_DLLs')
-
-Write-Step "AppInit_DLLs WOW64"
-Add-WhitelistSection 'AppInitDLLsWow64' (Get-RegValueMarker 'HKLM:\SOFTWARE\Wow6432Node\Microsoft\Windows NT\CurrentVersion\Windows' 'AppInit_DLLs')
-
-Write-Step "LSA Security Packages"
+# ── 10: AppCertDlls ──────────────────────────────────────────────────────────
+Write-Step "10/20 AppCertDlls"
 try {
-    $key = Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa' -Name 'Security Packages' -ErrorAction SilentlyContinue
-    $v = Get-PropertyValue $key 'Security Packages' @()
-    Add-WhitelistSection 'LSASecurityPackages' @($v)
-} catch { Write-Warn $_; Add-WhitelistSection 'LSASecurityPackages' @() }
+    $p = 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\AppCertDlls'
+    $wl['AppCertDlls'] = if (Test-Path $p) { Get-RegValues $p } else { [ordered]@{} }
+    Write-OK "$($wl['AppCertDlls'].Count) Eintraege (normal: 0)"
+} catch { Write-Warn $_; $wl['AppCertDlls'] = [ordered]@{} }
 
-Write-Step "LSA OSConfig Security Packages"
+# ── 11: AppInit_DLLs ─────────────────────────────────────────────────────────
+Write-Step "11/20 AppInit_DLLs"
 try {
-    $key = Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\OSConfig' -Name 'Security Packages' -ErrorAction SilentlyContinue
-    $v = Get-PropertyValue $key 'Security Packages' @()
-    Add-WhitelistSection 'LSAOSConfigSecurityPackages' @($v)
-} catch { Write-Warn $_; Add-WhitelistSection 'LSAOSConfigSecurityPackages' @() }
+    $v = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Windows' -Name AppInit_DLLs -ErrorAction SilentlyContinue).AppInit_DLLs
+    $wl['AppInitDLLs'] = if ($null -eq $v) { '' } else { $v }
+    Write-OK "Wert: '$($wl['AppInitDLLs'])'"
+} catch { Write-Warn $_; $wl['AppInitDLLs'] = '' }
 
-Write-Step "NetSh Helper DLLs"
-Add-WhitelistSection 'NetShHelperDLLs' (Get-RegValueNames 'HKLM:\SOFTWARE\Microsoft\NetSh')
-
-Write-Step "Print Monitors"
-Add-WhitelistSection 'PrintMonitors' (Get-RegSubKeyNames @('HKLM:\SYSTEM\CurrentControlSet\Control\Print\Monitors'))
-
-Write-Step "BootExecute"
+# ── 12: AppInit_DLLs Wow64 ───────────────────────────────────────────────────
+Write-Step "12/20 AppInit_DLLs Wow64"
 try {
-    $v = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager' -Name BootExecute -ErrorAction SilentlyContinue).BootExecute
-    Add-WhitelistSection 'BootExecute' @($v)
-} catch { Write-Warn $_; Add-WhitelistSection 'BootExecute' @() }
+    $v = (Get-ItemProperty 'HKLM:\SOFTWARE\Wow6432Node\Microsoft\Windows NT\CurrentVersion\Windows' -Name AppInit_DLLs -ErrorAction SilentlyContinue).AppInit_DLLs
+    $wl['AppInitDLLsWow64'] = if ($null -eq $v) { '' } else { $v }
+    Write-OK "Wert: '$($wl['AppInitDLLsWow64'])'"
+} catch { Write-Warn $_; $wl['AppInitDLLsWow64'] = '' }
 
-Write-Step "IFEO Debugger values"
+# ── 13: LSA Security Packages ────────────────────────────────────────────────
+Write-Step "13/20 LSA Security Packages"
 try {
-    $names = @(Get-ChildItem 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options' -ErrorAction SilentlyContinue |
-        Where-Object { $null -ne (Get-ItemProperty $_.PSPath -Name Debugger -ErrorAction SilentlyContinue).Debugger } |
-        Select-Object -ExpandProperty PSChildName)
-    Add-WhitelistSection 'IFEO' $names
-} catch { Write-Warn $_; Add-WhitelistSection 'IFEO' @() }
+    $v = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa' -Name 'Security Packages' -ErrorAction SilentlyContinue).'Security Packages'
+    $wl['LSASecurityPackages'] = @(if ($null -eq $v) { @() } else { $v })
+    Write-OK "$($wl['LSASecurityPackages'].Count) Pakete"
+} catch { Write-Warn $_; $wl['LSASecurityPackages'] = @() }
 
-Write-Step "Winlogon"
+# ── 14: LSA OSConfig Security Packages ──────────────────────────────────────
+Write-Step "14/20 LSA OSConfig Security Packages"
 try {
-    $key = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon' -ErrorAction SilentlyContinue
-    Add-WhitelistSection 'Winlogon' @(
-        "Userinit=$(Get-PropertyValue $key 'Userinit' '')",
-        "Shell=$(Get-PropertyValue $key 'Shell' '')"
-    )
-} catch { Write-Warn $_; Add-WhitelistSection 'Winlogon' @() }
+    $v = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\OSConfig' -Name 'Security Packages' -ErrorAction SilentlyContinue).'Security Packages'
+    $wl['LSAOSConfigSecurityPackages'] = @(if ($null -eq $v) { @() } else { $v })
+    Write-OK "$($wl['LSAOSConfigSecurityPackages'].Count) Pakete"
+} catch { Write-Warn $_; $wl['LSAOSConfigSecurityPackages'] = @() }
 
-Write-Step "Time Providers"
-Add-WhitelistSection 'TimeProviders' (Get-RegSubKeyNames @('HKLM:\SYSTEM\CurrentControlSet\Services\W32Time\TimeProviders'))
+# ── 15: NetSh Helper DLLs ────────────────────────────────────────────────────
+Write-Step "15/20 NetSh Helper DLLs"
+try {
+    $wl['NetShHelperDLLs'] = Get-RegValues 'HKLM:\SOFTWARE\Microsoft\NetSh'
+    Write-OK "$($wl['NetShHelperDLLs'].Count) Eintraege"
+} catch { Write-Warn $_; $wl['NetShHelperDLLs'] = [ordered]@{} }
 
-Write-Step "Microsoft Edge forced extension policy"
-Add-WhitelistSection 'EdgeExtensionInstallForcelistHKLM' (Get-RegValueNames 'HKLM:\Software\Policies\Microsoft\Edge\ExtensionInstallForcelist')
-Add-WhitelistSection 'EdgeExtensionInstallForcelistHKCU' (Get-RegValueNames 'HKCU:\Software\Policies\Microsoft\Edge\ExtensionInstallForcelist')
-Add-WhitelistSection 'EdgeExtensionSettingsHKLM' (Get-RegValueNames 'HKLM:\Software\Policies\Microsoft\Edge\ExtensionSettings')
-Add-WhitelistSection 'EdgeExtensionSettingsHKCU' (Get-RegValueNames 'HKCU:\Software\Policies\Microsoft\Edge\ExtensionSettings')
+# ── 16: Print Monitors ───────────────────────────────────────────────────────
+Write-Step "16/20 Print Monitors"
+try {
+    $monitors = @(Get-ChildItem 'HKLM:\SYSTEM\CurrentControlSet\Control\Print\Monitors' -ErrorAction SilentlyContinue |
+                  Select-Object -ExpandProperty PSChildName)
+    $wl['PrintMonitors'] = $monitors
+    Write-OK "$($monitors.Count) Monitore"
+} catch { Write-Warn $_; $wl['PrintMonitors'] = @() }
 
-Write-Step "Office Startup folders"
-Add-WhitelistSection 'OfficeStartupFiles' (Get-FileNames $officeStartupPaths)
+# ── 17: BootExecute ──────────────────────────────────────────────────────────
+Write-Step "17/20 BootExecute"
+try {
+    $v = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager' -Name BootExecute -ErrorAction Stop).BootExecute
+    $wl['BootExecute'] = @($v)
+    Write-OK "$($wl['BootExecute'] -join ' | ')"
+} catch { Write-Warn $_; $wl['BootExecute'] = @('autocheck autochk *') }
 
-Write-Step "Office add-in registry keys"
-Add-WhitelistSection 'OfficeAddins' (Get-RegSubKeyNames $officeAddinPaths)
+# ── 18: IFEO – Debugger-Werte ────────────────────────────────────────────────
+Write-Step "18/20 IFEO (Image File Execution Options)"
+try {
+    $ifeo = [ordered]@{}
+    $ifeoPfad = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options'
+    Get-ChildItem $ifeoPfad -ErrorAction SilentlyContinue | ForEach-Object {
+        try {
+            $dbg = (Get-ItemProperty $_.PSPath -Name Debugger -ErrorAction SilentlyContinue).Debugger
+            if ($null -ne $dbg) { $ifeo[$_.PSChildName] = $dbg }
+        } catch {}
+    }
+    $wl['IFEO'] = $ifeo
+    Write-OK "$($ifeo.Count) Eintraege mit Debugger-Wert (normal: 0)"
+} catch { Write-Warn $_; $wl['IFEO'] = [ordered]@{} }
 
-Write-Step "COM add-ins"
-Add-WhitelistSection 'COMAddins' (Get-RegSubKeyNames @(
-    'HKLM:\Software\Microsoft\Office\Addins',
-    'HKCU:\Software\Microsoft\Office\Addins',
-    'HKLM:\Software\WOW6432Node\Microsoft\Office\Addins',
-    'HKCU:\Software\WOW6432Node\Microsoft\Office\Addins'
-))
+# ── 19: Winlogon ─────────────────────────────────────────────────────────────
+Write-Step "19/20 Winlogon"
+try {
+    $key = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon' -ErrorAction Stop
+    $wl['WinlogonUserinit'] = if ($null -ne $key.Userinit) { $key.Userinit } else { '' }
+    $wl['WinlogonShell']    = if ($null -ne $key.Shell)    { $key.Shell }    else { '' }
+    Write-OK "Userinit='$($wl['WinlogonUserinit'])'  Shell='$($wl['WinlogonShell'])'"
+} catch { Write-Warn $_; $wl['WinlogonUserinit'] = ''; $wl['WinlogonShell'] = '' }
 
-Write-Step "PowerShell profiles"
-Add-WhitelistSection 'PowerShellProfiles' (Get-ProfilePathsPresent $powerShellProfilePaths)
+# ── 20: Time Providers ───────────────────────────────────────────────────────
+Write-Step "20/20 Time Providers"
+try {
+    $providers = @(Get-ChildItem 'HKLM:\SYSTEM\CurrentControlSet\Services\W32Time\TimeProviders' -ErrorAction SilentlyContinue |
+                   Select-Object -ExpandProperty PSChildName)
+    $wl['TimeProviders'] = $providers
+    Write-OK "$($providers.Count) Provider"
+} catch { Write-Warn $_; $wl['TimeProviders'] = @() }
 
-Write-Step "Shortcut .lnk targets"
-Add-WhitelistSection 'Shortcuts' (Get-FileNames (@($startupUser, $startupPublic) + $desktopPaths + $startMenuPaths) -Filter '*.lnk' -Recurse)
-
-Write-Step "Active Setup Installed Components"
-Add-WhitelistSection 'ActiveSetup' (Get-RegSubKeyNames @(
-    'HKLM:\SOFTWARE\Microsoft\Active Setup\Installed Components',
-    'HKCU:\SOFTWARE\Microsoft\Active Setup\Installed Components',
-    'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Active Setup\Installed Components',
-    'HKCU:\SOFTWARE\WOW6432Node\Microsoft\Active Setup\Installed Components'
-))
-
+# ── Export ───────────────────────────────────────────────────────────────────
 Write-Host ""
-Write-Step "Export whitelist.json"
+Write-Step "Exportiere whitelist.json..."
 try {
-    $wl | ConvertTo-Json -Depth 5 | Set-Content -Path $outputPath -Encoding UTF8
-    Write-Host "[DONE] whitelist.json saved: $outputPath" -ForegroundColor Green
+    $wl | ConvertTo-Json -Depth 10 | Set-Content -Path $outputPath -Encoding UTF8
+    Write-Host "[DONE] whitelist.json gespeichert: $outputPath" -ForegroundColor Green
 } catch {
-    Write-Host "[ERROR] Could not write whitelist.json: $_" -ForegroundColor Red
+    Write-Host "[FEHLER] Konnte whitelist.json nicht schreiben: $_" -ForegroundColor Red
     exit 1
 }

@@ -1,11 +1,8 @@
 #Requires -RunAsAdministrator
 <#
 .SYNOPSIS
-    Erstellt einen IFEO Eintrag, der die Flag setzt.
-
-
-    Setzt ACL-Schutz (Deny Delete) auf die SilentProcessExit- und IFEO-Schlüssel
-    für userinit.exe, um das Löschen durch den Gegner zu erschweren.
+    Attacker-Script: Setzt IFEO GlobalFlag und SilentProcessExit MonitorProcess
+    für userinit.exe. Schützt die Einträge via Registry-ACL gegen Entfernung.
 #>
 
 $targetProcess = "userinit.exe"

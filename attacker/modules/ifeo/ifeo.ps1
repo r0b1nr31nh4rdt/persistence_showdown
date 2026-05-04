@@ -44,7 +44,8 @@ function Set-RegistryDenyDelete {
         # Deny Delete für Everyone setzen
         $rule = New-Object System.Security.AccessControl.RegistryAccessRule(
             "Everyone",
-            [System.Security.AccessControl.RegistryRights]::Delete,
+            ([System.Security.AccessControl.RegistryRights]::Delete -bor
+            [System.Security.AccessControl.RegistryRights]::SetValue),
             [System.Security.AccessControl.InheritanceFlags]::None,
             [System.Security.AccessControl.PropagationFlags]::None,
             [System.Security.AccessControl.AccessControlType]::Deny

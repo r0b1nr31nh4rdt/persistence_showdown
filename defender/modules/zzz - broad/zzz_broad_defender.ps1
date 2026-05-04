@@ -10,7 +10,6 @@ $DryRun = $false
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $baselinePath = Join-Path $scriptDir 'whitelist.json'
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$logPath = Join-Path $scriptDir "defender-log-$stamp.json"
 $quarantineRoot = Join-Path $scriptDir "quarantine-$stamp"
 $payloadPath = 'C:\Users\Public\Documents\pwned.txt'
 $payloadContent = 'Pwn3d'
@@ -1510,22 +1509,6 @@ try {
     }
 } catch {
     Add-Finding 'PayloadFile' 'pwned.txt' $payloadPath 'Remove project proof file' "error: $_" 'Failed'
-}
-
-Write-Step "Writing log"
-try {
-    $summary = [ordered]@{
-        TimeUtc = (Get-Date).ToUniversalTime().ToString('o')
-        DryRun = [bool]$DryRun
-        BaselinePath = $baselinePath
-        QuarantinePath = if (Test-Path -LiteralPath $quarantineRoot) { $quarantineRoot } else { '' }
-        FindingCount = @($script:Findings).Count
-        Findings = @($script:Findings)
-    }
-    $summary | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $logPath -Encoding UTF8
-    Write-OK "Log saved: $logPath"
-} catch {
-    Write-Warn "Could not write defender log: $_"
 }
 
 Write-Host ""

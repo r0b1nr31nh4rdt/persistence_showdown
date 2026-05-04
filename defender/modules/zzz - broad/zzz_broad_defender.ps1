@@ -1053,6 +1053,288 @@ function Get-CleanupReason {
     return ''
 }
 
+function Get-RegistryParentPath {
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) { return '' }
+    $trimmed = (ConvertTo-RegistryProviderPath $Path).TrimEnd('\')
+    $lastSlash = $trimmed.LastIndexOf('\')
+    if ($lastSlash -lt 0) { return '' }
+    return $trimmed.Substring(0, $lastSlash)
+}
+
+function ConvertTo-RegistryProviderPath {
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) { return '' }
+
+    $candidate = $Path.Trim()
+    $providerPrefix = 'Microsoft.PowerShell.Core\Registry::'
+    if ($candidate.StartsWith($providerPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+        $candidate = $candidate.Substring($providerPrefix.Length)
+    }
+    if ($candidate.StartsWith('Registry::', [System.StringComparison]::OrdinalIgnoreCase)) {
+        $candidate = $candidate.Substring('Registry::'.Length)
+    }
+
+    if ($candidate.StartsWith('HKEY_LOCAL_MACHINE\', [System.StringComparison]::OrdinalIgnoreCase)) {
+        return "HKLM:\$($candidate.Substring('HKEY_LOCAL_MACHINE\'.Length))"
+    }
+    if ($candidate.Equals('HKEY_LOCAL_MACHINE', [System.StringComparison]::OrdinalIgnoreCase)) {
+        return 'HKLM:\'
+    }
+    if ($candidate.StartsWith('HKEY_CURRENT_USER\', [System.StringComparison]::OrdinalIgnoreCase)) {
+        return "HKCU:\$($candidate.Substring('HKEY_CURRENT_USER\'.Length))"
+    }
+    if ($candidate.Equals('HKEY_CURRENT_USER', [System.StringComparison]::OrdinalIgnoreCase)) {
+        return 'HKCU:\'
+    }
+
+    return $candidate
+}
+
+function Get-RegistryOpenInfo {
+    param([string]$Path)
+
+    $candidate = ConvertTo-RegistryProviderPath $Path
+    if ($candidate.StartsWith('HKLM:\', [System.StringComparison]::OrdinalIgnoreCase)) {
+        return [pscustomobject]@{
+            Hive = [Microsoft.Win32.RegistryHive]::LocalMachine
+            SubKey = $candidate.Substring('HKLM:\'.Length)
+            Path = $candidate
+        }
+    }
+    if ($candidate.StartsWith('HKCU:\', [System.StringComparison]::OrdinalIgnoreCase)) {
+        return [pscustomobject]@{
+            Hive = [Microsoft.Win32.RegistryHive]::CurrentUser
+            SubKey = $candidate.Substring('HKCU:\'.Length)
+            Path = $candidate
+        }
+    }
+
+    return $null
+}
+
+function Repair-RegistryAclForCleanup {
+    param(
+        [string]$Path,
+        [switch]$IncludeParent
+    )
+
+    $paths = @()
+    if ($IncludeParent) {
+        $parent = Get-RegistryParentPath $Path
+        if (-not [string]::IsNullOrWhiteSpace($parent)) { $paths += $parent }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($Path)) { $paths += (ConvertTo-RegistryProviderPath $Path) }
+
+    $blockingRights = [System.Security.AccessControl.RegistryRights]::Delete -bor
+        [System.Security.AccessControl.RegistryRights]::SetValue -bor
+        [System.Security.AccessControl.RegistryRights]::CreateSubKey -bor
+        [System.Security.AccessControl.RegistryRights]::WriteKey -bor
+        [System.Security.AccessControl.RegistryRights]::ChangePermissions -bor
+        [System.Security.AccessControl.RegistryRights]::TakeOwnership -bor
+        [System.Security.AccessControl.RegistryRights]::FullControl
+
+    $adminSid = New-Object System.Security.Principal.SecurityIdentifier 'S-1-5-32-544'
+    $systemSid = New-Object System.Security.Principal.SecurityIdentifier 'S-1-5-18'
+
+    foreach ($candidate in @($paths | Select-Object -Unique)) {
+        $baseKey = $null
+        $key = $null
+        try {
+            $info = Get-RegistryOpenInfo $candidate
+            if ($null -eq $info) { continue }
+            if (-not (Test-Path -Path $info.Path)) { continue }
+
+            $baseKey = [Microsoft.Win32.RegistryKey]::OpenBaseKey($info.Hive, [Microsoft.Win32.RegistryView]::Default)
+            $rights = [System.Security.AccessControl.RegistryRights]::ReadPermissions -bor
+                [System.Security.AccessControl.RegistryRights]::ChangePermissions
+            $key = $baseKey.OpenSubKey(
+                $info.SubKey,
+                [Microsoft.Win32.RegistryKeyPermissionCheck]::ReadWriteSubTree,
+                $rights
+            )
+            if ($null -eq $key) {
+                Write-Warn "Could not open registry ACL '$($info.Path)'"
+                continue
+            }
+
+            $acl = $key.GetAccessControl([System.Security.AccessControl.AccessControlSections]::Access)
+            $changed = $false
+
+            foreach ($rule in @($acl.Access)) {
+                if ($rule.IsInherited) { continue }
+                if ($rule.AccessControlType -ne [System.Security.AccessControl.AccessControlType]::Deny) { continue }
+                if (([int]($rule.RegistryRights -band $blockingRights)) -eq 0) { continue }
+                [void]$acl.RemoveAccessRuleSpecific($rule)
+                $changed = $true
+            }
+
+            if ($changed) {
+                $adminRule = New-Object System.Security.AccessControl.RegistryAccessRule(
+                    $adminSid,
+                    [System.Security.AccessControl.RegistryRights]::FullControl,
+                    [System.Security.AccessControl.InheritanceFlags]::None,
+                    [System.Security.AccessControl.PropagationFlags]::None,
+                    [System.Security.AccessControl.AccessControlType]::Allow
+                )
+                $systemRule = New-Object System.Security.AccessControl.RegistryAccessRule(
+                    $systemSid,
+                    [System.Security.AccessControl.RegistryRights]::FullControl,
+                    [System.Security.AccessControl.InheritanceFlags]::None,
+                    [System.Security.AccessControl.PropagationFlags]::None,
+                    [System.Security.AccessControl.AccessControlType]::Allow
+                )
+                $acl.AddAccessRule($adminRule)
+                $acl.AddAccessRule($systemRule)
+                $key.SetAccessControl($acl)
+                Write-OK "Adjusted registry ACL: $($info.Path)"
+            }
+        } catch {
+            Write-Warn "Could not adjust registry ACL '$candidate': $_"
+        } finally {
+            if ($null -ne $key) { $key.Close() }
+            if ($null -ne $baseKey) { $baseKey.Close() }
+        }
+    }
+}
+
+function Repair-FileAclForCleanup {
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) { return }
+
+    $blockingRights = [System.Security.AccessControl.FileSystemRights]::Delete -bor
+        [System.Security.AccessControl.FileSystemRights]::Write -bor
+        [System.Security.AccessControl.FileSystemRights]::WriteData -bor
+        [System.Security.AccessControl.FileSystemRights]::AppendData -bor
+        [System.Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles -bor
+        [System.Security.AccessControl.FileSystemRights]::ChangePermissions -bor
+        [System.Security.AccessControl.FileSystemRights]::TakeOwnership -bor
+        [System.Security.AccessControl.FileSystemRights]::Modify -bor
+        [System.Security.AccessControl.FileSystemRights]::FullControl
+
+    $adminSid = New-Object System.Security.Principal.SecurityIdentifier 'S-1-5-32-544'
+    $systemSid = New-Object System.Security.Principal.SecurityIdentifier 'S-1-5-18'
+
+    try {
+        if (-not (Test-Path -LiteralPath $Path)) { return }
+        $acl = Get-Acl -LiteralPath $Path -ErrorAction Stop
+        $changed = $false
+
+        foreach ($rule in @($acl.Access)) {
+            if ($rule.IsInherited) { continue }
+            if ($rule.AccessControlType -ne [System.Security.AccessControl.AccessControlType]::Deny) { continue }
+            if (([int]($rule.FileSystemRights -band $blockingRights)) -eq 0) { continue }
+            [void]$acl.RemoveAccessRuleSpecific($rule)
+            $changed = $true
+        }
+
+        if ($changed) {
+            $adminRule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+                $adminSid,
+                [System.Security.AccessControl.FileSystemRights]::FullControl,
+                [System.Security.AccessControl.AccessControlType]::Allow
+            )
+            $systemRule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+                $systemSid,
+                [System.Security.AccessControl.FileSystemRights]::FullControl,
+                [System.Security.AccessControl.AccessControlType]::Allow
+            )
+            $acl.AddAccessRule($adminRule)
+            $acl.AddAccessRule($systemRule)
+            Set-Acl -LiteralPath $Path -AclObject $acl -ErrorAction Stop
+            Write-OK "Adjusted file ACL: $Path"
+        }
+    } catch {
+        Write-Warn "Could not adjust file ACL '$Path': $_"
+    }
+}
+
+function Remove-RegistryValueSafe {
+    param([string]$Path, [string]$Name)
+
+    $safePath = ConvertTo-RegistryProviderPath $Path
+    Repair-RegistryAclForCleanup -Path $safePath
+    Remove-ItemProperty -Path $safePath -Name $Name -Force -ErrorAction Stop
+}
+
+function Set-RegistryValueSafe {
+    param(
+        [string]$Path,
+        [string]$Name,
+        $Value,
+        [string]$Type = ''
+    )
+
+    $safePath = ConvertTo-RegistryProviderPath $Path
+    Repair-RegistryAclForCleanup -Path $safePath
+    $params = @{
+        Path = $safePath
+        Name = $Name
+        Value = $Value
+        Force = $true
+        ErrorAction = 'Stop'
+    }
+    if (-not [string]::IsNullOrWhiteSpace($Type)) { $params['Type'] = $Type }
+    Set-ItemProperty @params
+}
+
+function Remove-RegistryKeySafe {
+    param([string]$Path)
+
+    $safePath = ConvertTo-RegistryProviderPath $Path
+    Repair-RegistryAclForCleanup -Path $safePath -IncludeParent
+    Remove-Item -Path $safePath -Recurse -Force -ErrorAction Stop
+}
+
+function Move-FileSafe {
+    param([string]$Path, [string]$Destination)
+
+    Repair-FileAclForCleanup -Path $Path
+    Move-Item -LiteralPath $Path -Destination $Destination -Force -ErrorAction Stop
+}
+
+function Remove-FileSafe {
+    param([string]$Path)
+
+    Repair-FileAclForCleanup -Path $Path
+    Remove-Item -LiteralPath $Path -Force -ErrorAction Stop
+}
+
+function Get-TaskCacheTreePath {
+    param($Task)
+
+    $taskPath = [string]$Task.TaskPath
+    $taskName = [string]$Task.TaskName
+    $parts = @()
+    $trimmedTaskPath = $taskPath.Trim('\')
+    if (-not [string]::IsNullOrWhiteSpace($trimmedTaskPath)) { $parts += $trimmedTaskPath }
+    $parts += $taskName
+    return "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tree\$($parts -join '\')"
+}
+
+function Unregister-ScheduledTaskSafe {
+    param($Task)
+
+    $taskFile = Get-TaskFilePath $Task
+    Repair-FileAclForCleanup -Path $taskFile
+    Repair-RegistryAclForCleanup -Path (Get-TaskCacheTreePath $Task) -IncludeParent
+    Unregister-ScheduledTask -TaskName $Task.TaskName -TaskPath $Task.TaskPath -Confirm:$false -ErrorAction Stop
+}
+
+function Remove-ServiceSafe {
+    param([string]$Name)
+
+    Repair-RegistryAclForCleanup -Path "HKLM:\SYSTEM\CurrentControlSet\Services\$Name" -IncludeParent
+    Stop-Service -Name $Name -Force -ErrorAction SilentlyContinue
+    & sc.exe delete $Name | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "sc.exe delete failed for service '$Name' with exit code $LASTEXITCODE"
+    }
+}
+
 function Move-ToQuarantine {
     param([System.IO.FileInfo]$File, [string]$Kind, [string]$Section, [string]$Reason = '')
 
@@ -1067,7 +1349,7 @@ function Move-ToQuarantine {
             if (Test-Path -LiteralPath $dest) {
                 $dest = Join-Path $quarantineRoot ("{0}-{1}" -f ([guid]::NewGuid().ToString('N')), $safeName)
             }
-            Move-Item -LiteralPath $File.FullName -Destination $dest -Force -ErrorAction Stop
+            Move-FileSafe -Path $File.FullName -Destination $dest
         }
         Add-Finding $Kind $File.Name $File.FullName 'Move file out of persistence location' $reason $status
         Write-Removed "$status ${Kind}: $($File.FullName)"
@@ -1087,7 +1369,7 @@ function Invoke-RegValueCleanup {
         $status = if ($DryRun) { 'DryRun' } else { 'Removed' }
         try {
             if (-not $DryRun) {
-                Remove-ItemProperty -Path $Path -Name $name -Force -ErrorAction Stop
+                Remove-RegistryValueSafe -Path $Path -Name $name
             }
             Add-Finding $Kind $name $Path 'Remove registry value' $reason $status
             Write-Removed "$status registry value: $Path -> $name"
@@ -1108,7 +1390,7 @@ function Invoke-RegSubKeyCleanup {
         $status = if ($DryRun) { 'DryRun' } else { 'Removed' }
         try {
             if (-not $DryRun) {
-                Remove-Item -Path $item.PSPath -Recurse -Force -ErrorAction Stop
+                Remove-RegistryKeySafe -Path $item.PSPath
             }
             Add-Finding $Kind $item.Name $item.Path 'Remove registry key' $reason $status
             Write-Removed "$status registry key: $($item.Path)"
@@ -1162,7 +1444,7 @@ function Invoke-ScheduledTaskCleanup {
             $status = if ($DryRun) { 'DryRun' } else { 'Removed' }
             try {
                 if (-not $DryRun) {
-                    Unregister-ScheduledTask -TaskName $_.TaskName -TaskPath $_.TaskPath -Confirm:$false -ErrorAction Stop
+                    Unregister-ScheduledTaskSafe -Task $_
                 }
                 Add-Finding 'ScheduledTask' $identity $_.TaskPath 'Unregister scheduled task' $reason $status
                 Write-Removed "$status scheduled task: $identity"
@@ -1186,8 +1468,7 @@ function Invoke-ServiceCleanup {
                 $status = if ($DryRun) { 'DryRun' } else { 'Removed' }
                 try {
                     if (-not $DryRun) {
-                        Stop-Service -Name $_.Name -Force -ErrorAction SilentlyContinue
-                        & sc.exe delete $_.Name | Out-Null
+                        Remove-ServiceSafe -Name $_.Name
                     }
                     Add-Finding 'Service' $_.Name $_.PathName 'Stop and delete service' $reason $status
                     Write-Removed "$status service: $($_.Name)"
@@ -1251,7 +1532,7 @@ function Invoke-SingleRegValueMarkerCleanup {
 
         $status = if ($DryRun) { 'DryRun' } else { 'Removed' }
         if (-not $DryRun) {
-            Remove-ItemProperty -Path $Path -Name $ValueName -Force -ErrorAction Stop
+            Remove-RegistryValueSafe -Path $Path -Name $ValueName
         }
         Add-Finding $Kind $ValueName $Path 'Remove registry value' $reason $status
         Write-Removed "$status registry value: $Path -> $ValueName"
@@ -1275,7 +1556,7 @@ function Invoke-MultiStringCleanup {
 
         $status = if ($DryRun) { 'DryRun' } else { 'Removed' }
         if (-not $DryRun) {
-            Set-ItemProperty -Path $Path -Name $ValueName -Value ([string[]]@($current | Where-Object { $allowed -contains $_ })) -ErrorAction Stop
+            Set-RegistryValueSafe -Path $Path -Name $ValueName -Value ([string[]]@($current | Where-Object { $allowed -contains $_ })) -Type 'MultiString'
         }
         Add-Finding $Kind ($extra -join ', ') $Path "Remove unlisted entries from $ValueName" 'not in whitelist' $status
         Write-Removed "$status ${Kind}: $($extra -join ', ')"
@@ -1300,7 +1581,7 @@ function Invoke-ScalarValueCleanup {
         $replacement = if ($allowed.Count -gt 0) { $allowed } else { $DefaultValue }
         $status = if ($DryRun) { 'DryRun' } else { 'Reverted' }
         if (-not $DryRun) {
-            Set-ItemProperty -Path $Path -Name $ValueName -Value ([string[]]$replacement) -ErrorAction Stop
+            Set-RegistryValueSafe -Path $Path -Name $ValueName -Value ([string[]]$replacement)
         }
         Add-Finding $Kind ($extra -join ', ') $Path "Revert $ValueName to whitelist" 'not in whitelist' $status
         Write-Removed "$status ${Kind}: $ValueName"
@@ -1323,7 +1604,7 @@ function Invoke-WinlogonCleanup {
             $replacement = $allowed[0].Substring(("$name=").Length)
             $status = if ($DryRun) { 'DryRun' } else { 'Reverted' }
             if (-not $DryRun) {
-                Set-ItemProperty -Path $path -Name $name -Value $replacement -ErrorAction Stop
+                Set-RegistryValueSafe -Path $path -Name $name -Value $replacement
             }
             Add-Finding 'Winlogon' $identity $path "Revert $name to whitelist" 'not in whitelist' $status
             Write-Removed "$status Winlogon value: $name"
@@ -1454,24 +1735,30 @@ Invoke-RegSubKeyCleanup 'ActiveSetup' 'ActiveSetup' @(
     'HKCU:\SOFTWARE\WOW6432Node\Microsoft\Active Setup\Installed Components'
 )
 
-Write-Step "Cleaning IFEO Debugger values"
+Write-Step "Cleaning IFEO Debugger and GlobalFlag values"
 try {
     Get-ChildItem 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options' -ErrorAction SilentlyContinue | ForEach-Object {
-        $key = Get-ItemProperty $_.PSPath -Name Debugger -ErrorAction SilentlyContinue
-        $debugger = Get-PropertyValue $key 'Debugger' $null
-        if ($null -eq $debugger) { return }
-        $reason = Get-CleanupReason -Section 'IFEO' -Identity $_.PSChildName -Text (ConvertTo-TextValue $debugger)
-        if (-not $reason) { return }
-        $status = if ($DryRun) { 'DryRun' } else { 'Removed' }
-        if (-not $DryRun) {
-            Remove-ItemProperty -Path $_.PSPath -Name Debugger -Force -ErrorAction Stop
+        $props = Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue
+        foreach ($valueName in @('Debugger', 'GlobalFlag')) {
+            $value = Get-PropertyValue $props $valueName $null
+            if ($null -eq $value) { continue }
+            $identity = "$($_.PSChildName):$valueName"
+            $reason = Get-CleanupReason -Section 'IFEO' -Identity $identity -Text (ConvertTo-TextValue $value)
+            if (-not $reason) { continue }
+            $status = if ($DryRun) { 'DryRun' } else { 'Removed' }
+            if (-not $DryRun) {
+                Remove-RegistryValueSafe -Path $_.PSPath -Name $valueName
+            }
+            Add-Finding 'IFEO' $identity $_.PSPath "Remove $valueName registry value" $reason $status
+            Write-Removed "$status IFEO ${valueName}: $($_.PSChildName)"
         }
-        Add-Finding 'IFEO' $_.PSChildName $_.PSPath 'Remove Debugger registry value' $reason $status
-        Write-Removed "$status IFEO Debugger: $($_.PSChildName)"
     }
 } catch {
-    Add-Finding 'IFEO' 'IFEO' 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options' 'Remove Debugger registry value' "error: $_" 'Failed'
+    Add-Finding 'IFEO' 'IFEO' 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options' 'Remove IFEO registry values' "error: $_" 'Failed'
 }
+
+Write-Step "Cleaning SilentProcessExit entries"
+Invoke-RegSubKeyCleanup 'SilentProcessExit' 'SilentProcessExit' @('HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SilentProcessExit')
 
 Write-Step "Cleaning scalar persistence values"
 Invoke-MultiStringCleanup 'LSASecurityPackages' 'LSASecurityPackages' 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa' 'Security Packages'
@@ -1500,7 +1787,7 @@ try {
         }
         $status = if ($DryRun) { 'DryRun' } else { 'Removed' }
         if (-not $DryRun) {
-            Remove-Item -LiteralPath $payloadPath -Force -ErrorAction Stop
+            Remove-FileSafe -Path $payloadPath
         }
         Add-Finding 'PayloadFile' 'pwned.txt' $payloadPath 'Remove project proof file' $reason $status
         Write-Removed "$status payload proof file: $payloadPath"

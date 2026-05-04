@@ -1446,7 +1446,8 @@ Invoke-RegSubKeyCleanup 'ActiveSetup' 'ActiveSetup' @(
 Write-Step "Cleaning IFEO Debugger values"
 try {
     Get-ChildItem 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options' -ErrorAction SilentlyContinue | ForEach-Object {
-        $debugger = (Get-ItemProperty $_.PSPath -Name Debugger -ErrorAction SilentlyContinue).Debugger
+        $key = Get-ItemProperty $_.PSPath -Name Debugger -ErrorAction SilentlyContinue
+        $debugger = Get-PropertyValue $key 'Debugger' $null
         if ($null -eq $debugger) { return }
         $reason = Get-CleanupReason -Section 'IFEO' -Identity $_.PSChildName -Text (ConvertTo-TextValue $debugger)
         if (-not $reason) { return }

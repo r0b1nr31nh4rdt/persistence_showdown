@@ -155,14 +155,14 @@ try {
         -Force
 
 
-    # ACL auf beide Registry-Schluessel setzen
+    # Owner zuerst setzen (muss vor Deny TakeOwnership passieren)
+    Set-RegistryOwnerTrustedInstaller $ifeoPath
+    Set-RegistryOwnerTrustedInstaller $spePath
+
+    # Danach ACL sperren
     Set-RegistryDenyDelete $ifeoPath
     Set-RegistryDenyDelete $spePath
     Set-RegistryDenyDeleteSubkeys $ifeoParentPath
-
-    # Owner auf TrustedInstaller setzen (verhindert WRITE_DAC via Ownership)
-    Set-RegistryOwnerTrustedInstaller $ifeoPath
-    Set-RegistryOwnerTrustedInstaller $spePath
 
 } catch {
     Write-Host "IFEO was not successful: $_" -ForegroundColor Yellow

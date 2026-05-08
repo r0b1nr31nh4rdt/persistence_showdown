@@ -14,6 +14,10 @@ Alex, Jacob, Robin, Stefan
    - YES → Attacker wins
    - NO → Defender wins
 
+## Competition Result
+
+https://r0b1nr31nh4rdt.github.io/persistence_showdown/Showdown-Report.html
+
 ## Structure
 ```
 project_7_persistent_showdown/

@@ -2,7 +2,7 @@
 
 Red vs. Blue Team Persistence Challenge on Windows VMs.
 
-## Team
+## Team B
 Alex, Jacob, Robin, Stefan
 
 ## Rules

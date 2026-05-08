@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Persistence Showdown — Team A vs Team B</title>
+<style>
+  :root {
+    --red: #c0392b;
+    --red-bg: #fdecea;
+    --blue: #2563eb;
+    --blue-bg: #e8f0fe;
+    --gray-900: #1a1a1a;
+    --gray-700: #4a4a4a;
+    --gray-500: #777;
+    --gray-200: #e5e5e5;
+    --gray-100: #f6f6f6;
+    --green: #1e8449;
+    --amber: #b7791f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.55;
+    color: var(--gray-900);
+    background: #fafafa;
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 40px 24px 80px;
+  }
+  h1 {
+    font-size: 2.2em;
+    margin-bottom: 0.2em;
+    border-bottom: 3px solid var(--gray-900);
+    padding-bottom: 0.3em;
+  }
+  h1 .subtitle {
+    display: block;
+    font-size: 0.5em;
+    font-weight: 400;
+    color: var(--gray-500);
+    margin-top: 8px;
+  }
+  h2 {
+    margin-top: 2em;
+    border-left: 5px solid var(--gray-900);
+    padding-left: 12px;
+  }
+  h3 {
+    margin-top: 1.6em;
+    color: var(--gray-700);
+  }
+  code, pre {
+    font-family: "SF Mono", Menlo, Monaco, Consolas, monospace;
+    background: var(--gray-100);
+    border: 1px solid var(--gray-200);
+    border-radius: 4px;
+  }
+  code { padding: 2px 6px; font-size: 0.92em; }
+  pre {
+    padding: 14px 16px;
+    overflow-x: auto;
+    font-size: 0.88em;
+    line-height: 1.45;
+  }
+  pre code { background: none; border: none; padding: 0; }
+  .scoreboard {
+    margin: 28px 0;
+    border-collapse: collapse;
+    width: 100%;
+    background: white;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  }
+  .scoreboard th, .scoreboard td {
+    border: 1px solid var(--gray-200);
+    padding: 12px 14px;
+    text-align: left;
+  }
+  .scoreboard th {
+    background: var(--gray-900);
+    color: white;
+    font-weight: 600;
+  }
+  .scoreboard tr:nth-child(even) { background: var(--gray-100); }
+  .winner-blue { color: var(--blue); font-weight: 700; }
+  .winner-red { color: var(--red); font-weight: 700; }
+  .team-red { color: var(--red); font-weight: 600; }
+  .team-blue { color: var(--blue); font-weight: 600; }
+  .round {
+    margin-top: 28px;
+    padding: 22px 26px;
+    border-radius: 8px;
+    background: white;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    border-left: 6px solid var(--gray-200);
+  }
+  .round.win-blue { border-left-color: var(--blue); }
+  .round.win-red  { border-left-color: var(--red); }
+  .round h2 { margin-top: 0; border: none; padding: 0; font-size: 1.4em; }
+  .verdict {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 4px;
+    font-weight: 700;
+    font-size: 0.92em;
+    margin-left: 8px;
+  }
+  .verdict.blue { background: var(--blue-bg); color: var(--blue); }
+  .verdict.red  { background: var(--red-bg);  color: var(--red); }
+  .timeline {
+    background: var(--gray-100);
+    border-left: 4px solid var(--amber);
+    padding: 14px 18px;
+    margin: 16px 0;
+    font-family: "SF Mono", Menlo, Monaco, monospace;
+    font-size: 0.9em;
+  }
+  .timeline div { padding: 4px 0; }
+  .timeline .t { color: var(--gray-500); display: inline-block; width: 110px; }
+  .smartbox {
+    background: white;
+    padding: 18px 22px;
+    border-radius: 6px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    margin: 14px 0;
+  }
+  .smartbox.red  { border-top: 4px solid var(--red); }
+  .smartbox.blue { border-top: 4px solid var(--blue); }
+  .smartbox h4 {
+    margin-top: 0;
+    margin-bottom: 12px;
+    font-size: 1.05em;
+  }
+  .smartbox ul { margin: 0; padding-left: 22px; }
+  .smartbox li { margin-bottom: 8px; }
+  .grid-two {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  @media (max-width: 720px) { .grid-two { grid-template-columns: 1fr; } }
+  blockquote {
+    border-left: 4px solid var(--gray-500);
+    margin: 16px 0;
+    padding: 10px 16px;
+    color: var(--gray-700);
+    font-style: italic;
+    background: var(--gray-100);
+  }
+  .meta {
+    color: var(--gray-500);
+    font-size: 0.92em;
+    margin-bottom: 24px;
+  }
+  .pill {
+    display: inline-block;
+    padding: 2px 9px;
+    border-radius: 12px;
+    font-size: 0.82em;
+    font-weight: 600;
+    margin-right: 4px;
+  }
+  .pill.red  { background: var(--red-bg);  color: var(--red); }
+  .pill.blue { background: var(--blue-bg); color: var(--blue); }
+  .footnote {
+    margin-top: 50px;
+    padding-top: 16px;
+    border-top: 1px solid var(--gray-200);
+    color: var(--gray-500);
+    font-size: 0.88em;
+  }
+</style>
+</head>
+<body>
+
+<h1>
+  Persistence Showdown Report
+  <span class="subtitle">Team A vs Team B &mdash; Windows VM, PowerShell, Two Cross-Team Rounds</span>
+</h1>
+
+<div class="meta">
+  <strong>Lab format:</strong> Each team built two PowerShell scripts &mdash;
+  an <span class="pill red">Attacker (Red)</span> that plants persistence, and a
+  <span class="pill blue">Defender (Blue)</span> that detects and removes it.
+  Win condition: after reboot, if <code>C:\Users\Public\Documents\pwned.txt</code> exists, Red wins; otherwise Blue wins.
+</div>
+
+<h2>Final Scoreboard</h2>
+
+<table class="scoreboard">
+  <thead>
+    <tr>
+      <th>Round</th>
+      <th>Attacker</th>
+      <th>Defender</th>
+      <th>Winner</th>
+      <th>Margin</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>1</td>
+      <td><span class="team-red">A Red</span> (Team A Attacker)</td>
+      <td><span class="team-blue">B Blue</span> (Team B Defender)</td>
+      <td class="winner-blue">B Blue wins</td>
+      <td>Clean &mdash; persistence never fires</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td><span class="team-red">B Red</span> (Team B Attacker)</td>
+      <td><span class="team-blue">A Blue</span> (Team A Defender)</td>
+      <td class="winner-red">B Red wins</td>
+      <td>Persistence fires; A Blue's watchdog only suppresses the artifact</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>
+  <strong>Team B wins both directions.</strong> Their defender beats Team A's attacker by exhaustive enumeration; their attacker beats Team A's defender by hiding in persistence locations the defender never searches.
+</p>
+
+<!-- ============================== ROUND 1 ============================== -->
+<div class="round win-blue">
+  <h2>
+    Round 1 &mdash; <span class="team-red">A Red</span> vs <span class="team-blue">B Blue</span>
+    <span class="verdict blue">B Blue wins</span>
+  </h2>
+
+  <p><strong>Observed in the lab:</strong> No <code>pwned.txt</code> file was created at any point after reboot. Defender wins cleanly.</p>
+
+  <h3>What happens when we run the test</h3>
+  <div class="timeline">
+    <div><span class="t">T+0:00</span> Operator runs <code>A Red.ps1</code> as Administrator. Four persistence entries planted: Run key <code>AudioSyncHost</code>, scheduled task <code>\AudioSyncMonitor</code>, service <code>AudioSyncProxy</code>, startup shortcut <code>AudioSyncUpdate.lnk</code>.</div>
+    <div><span class="t">T+0:30</span> Operator runs <code>B Blue.ps1</code>. The defender enumerates every persistence location it knows about, comparing each entry name against an embedded JSON whitelist of legitimate Windows entries.</div>
+    <div><span class="t">T+0:35</span> All four <code>AudioSync*</code> names fail the whitelist check. The defender removes the Run key, deletes the scheduled task, disables and removes the service, deletes the startup shortcut.</div>
+    <div><span class="t">T+1:00</span> VM reboots.</div>
+    <div><span class="t">T+1:45</span> User logs back in. Nothing fires &mdash; all triggers were removed before reboot. <code>Test-Path</code> returns <code>False</code>.</div>
+  </div>
+
+  <h3>Why A Red lost</h3>
+  <p>
+    A Red's payload uses a clever ASCII char-array trick to obfuscate the strings <code>pwned.txt</code> and <code>Pwn3d</code> &mdash; designed to evade <em>regex-based</em> detection. But B Blue doesn't grep payloads; it asks a different question: <em>"is this entry name on the list of expected, legitimate Windows entries?"</em> The names <code>AudioSyncHost</code>, <code>AudioSyncMonitor</code>, etc. are invented &mdash; they sound like real Windows audio components but don't exist on a clean install. They fail the whitelist regardless of what their payload does.
+  </p>
+  <blockquote>
+    Lesson: Clever payload obfuscation loses to whitelist enumeration. A defender that asks "is this expected?" inverts the burden of proof from itself to the attacker.
+  </blockquote>
+</div>
+
+<!-- ============================== ROUND 2 ============================== -->
+<div class="round win-red">
+  <h2>
+    Round 2 &mdash; <span class="team-red">B Red</span> vs <span class="team-blue">A Blue</span>
+    <span class="verdict red">B Red wins</span>
+  </h2>
+
+  <p><strong>Observed in the lab:</strong> After reboot, <code>pwned.txt</code> appears, then disappears, then reappears &mdash; but only when the operator chose Defender Watchdog Option 2.</p>
+
+  <h3>What happens when we run the test</h3>
+  <div class="timeline">
+    <div><span class="t">T+0:00</span> Operator runs <code>B Red.ps1</code> as Administrator. Persistence is planted in 10+ locations: HKCU/HKLM Run keys with AES-encrypted payloads, IFEO + SilentProcessExit on userinit.exe, WMI permanent event subscription, PowerShell profile injection, Winlogon Userinit append, BootExecute append, scheduled tasks, services, hijacked existing-task entries. Critical registry keys are armored with TrustedInstaller ownership and Deny ACEs.</div>
+    <div><span class="t">T+0:45</span> Operator runs <code>A Blue.ps1</code>, choosing Watchdog Option 2. A Blue scans Run keys, scheduled tasks, services, startup folders. It does not look at IFEO, WMI, PowerShell profiles, BootExecute, or Winlogon appends. A SYSTEM-level scheduled task is installed that runs every 30 seconds.</div>
+    <div><span class="t">T+1:30</span> VM reboots.</div>
+    <div><span class="t">T+1:50</span> Login completes. <strong>userinit.exe SilentProcessExit fires</strong>. <code>cmd.exe /c echo Pwn3d &gt; pwned.txt</code> writes the file.</div>
+    <div><span class="t">T+2:15</span> A Blue's watchdog scheduled task fires (30s tick). Detects <code>pwned.txt</code>, deletes it.</div>
+    <div><span class="t">T+5:50</span> ~4 minutes after boot &mdash; WMI subscription trigger condition <code>SystemUpTime BETWEEN 240 AND 325</code> matches. WMI consumer fires. <code>pwned.txt</code> is recreated.</div>
+    <div><span class="t">T+6:00</span> Watchdog tick. File deleted.</div>
+    <div><span class="t">T+...</span> Cycle repeats every time a persistence trigger fires. Most of the time the file is gone, but at every trigger moment it exists.</div>
+  </div>
+
+  <h3>Why this is officially a B Red win</h3>
+  <p>
+    By the project's win condition &mdash; <em>"after reboot, if pwned.txt exists, the attacker wins"</em> &mdash; the file does exist after reboot. Repeatedly. The persistence is intact and would re-create the file forever.
+  </p>
+  <p>
+    A Blue's watchdog is a creative workaround, but it doesn't actually <em>defeat</em> the persistence. It plays whack-a-mole with the artifact. If the operator ran one more reboot without re-arming the watchdog, the file would stay permanently. This is <strong>denial of evidence</strong>, not defense.
+  </p>
+
+  <h3>Why A Blue's primary scan missed everything</h3>
+  <p>
+    A Blue's detection logic only enumerates four persistence categories: Run keys, scheduled tasks, services, startup folders. B Red plants in those four <em>and</em> in:
+  </p>
+  <ul>
+    <li>IFEO + SilentProcessExit on <code>userinit.exe</code> (no module checks this)</li>
+    <li>WMI permanent event subscription (no module checks this)</li>
+    <li>PowerShell <code>$PROFILE</code> injection (no module checks this)</li>
+    <li>Winlogon Userinit append (no module checks this)</li>
+    <li>BootExecute append (no module checks this)</li>
+  </ul>
+  <p>
+    Even where A Blue does detect a B Red entry, removal often fails: B Red has armored registry keys with <strong>TrustedInstaller ownership and Deny ACEs</strong>. A Blue's <code>Remove-Item</code> throws ACCESS_DENIED, the exception is caught, the script logs <code>[FAILED]</code> and moves on. The persistence stays in place.
+  </p>
+</div>
+
+<!-- ============================== SMART MOVES ============================== -->
+<h2>Smart Moves &mdash; Team A</h2>
+
+<div class="grid-two">
+  <div class="smartbox red">
+    <h4>A Red &mdash; Attacker</h4>
+    <ul>
+      <li><strong>ASCII char-array payload encoding.</strong> Builds <code>"pwned.txt"</code> as <code>[char[]](112,119,110,101,100,46,116,120,116)</code>. The literal string never appears anywhere on disk or in memory until runtime. Defeats every regex hunt for "pwned" or "Pwn3d".</li>
+      <li><strong>FileShare=Read lock on the payload file.</strong> Opens with <code>[System.IO.File]::Open($p, 4, 3, 1)</code> &mdash; FileMode=OpenOrCreate, FileAccess=ReadWrite, FileShare=Read. Any defender's <code>Remove-Item</code> fails because Delete share isn't allowed. The file is immortal while the payload process is alive.</li>
+      <li><strong>Infinite <code>Start-Sleep</code> loop</strong> keeps the payload process and file lock alive forever.</li>
+      <li><strong>Realistic naming convention.</strong> <code>AudioSyncHost</code>, <code>AudioSyncProxy</code>, <code>AudioSyncMonitor</code> all sound like genuine Windows audio subsystem services. A human reviewer might let them through.</li>
+      <li><strong>Path-by-API rather than literal.</strong> Uses <code>[Environment]::GetFolderPath('CommonDocuments')</code> instead of the literal <code>"C:\Users\Public\Documents"</code>, dodging defenders that flag the <code>\Public\</code> path string.</li>
+      <li><strong>Four redundant persistence techniques.</strong> Tested against their own defender and confirmed all four survive (the script comments admit it).</li>
+    </ul>
+  </div>
+
+  <div class="smartbox blue">
+    <h4>A Blue &mdash; Defender</h4>
+    <ul>
+      <li><strong>SYSTEM-level watchdog scheduled task.</strong> Runs every 30 seconds, can't be killed by a user-context attacker. The watchdog is what made Round 2 a contest at all.</li>
+      <li><strong>Artifact-deletion fallback strategy.</strong> Even when the defender can't find the persistence, it can wipe the output file. Crude, but effective at suppressing visible damage.</li>
+      <li><strong>Ghost RunOnce guard.</strong> A self-installing tripwire under <code>HKCU:\...\RunOnce</code> that fires on next login &mdash; so even if the defender process is killed, it gets a second chance.</li>
+      <li><strong>Hunt-string and red-flag taxonomy.</strong> Well-organized lists for argument flags, suspicious paths, interpreter patterns, suspicious extensions. Would have caught a less sophisticated attacker.</li>
+      <li><strong>Winlogon Userinit/Shell self-repair.</strong> If tampering is detected, resets to safe defaults rather than just deleting (recovery, not damage).</li>
+    </ul>
+  </div>
+</div>
+
+<h2>Smart Moves &mdash; Team B</h2>
+
+<div class="grid-two">
+  <div class="smartbox red">
+    <h4>B Red &mdash; Attacker</h4>
+    <ul>
+      <li><strong>AES + PBKDF2 encrypted payloads in the registry.</strong> A defender looking at the raw registry value sees encrypted blobs, not commands. The decryption key is hardcoded and the payload is decrypted at runtime.</li>
+      <li><strong>TrustedInstaller ownership armor.</strong> Transfers ownership of persistence keys to <code>NT SERVICE\TrustedInstaller</code> and adds <code>Deny</code> ACEs for <code>Everyone</code>. Even an elevated administrator cannot delete these keys without first enabling <code>SeTakeOwnershipPrivilege</code> and reassigning ownership &mdash; something most defenders don't do.</li>
+      <li><strong>IFEO + SilentProcessExit (not Debugger).</strong> Most attackers use the well-known <code>IFEO\&lt;process&gt;\Debugger</code> hijack, which replaces the executable. SilentProcessExit fires <em>after</em> the process exits naturally &mdash; so userinit.exe runs normally and login completes, but the trigger fires as a side effect of the OS reporting the exit. Stealthy and login-safe.</li>
+      <li><strong>WMI subscription with <code>SystemUpTime BETWEEN 240 AND 325</code>.</strong> Fires exactly once per boot, four minutes in. By that point most defender scans are finished and the user has settled in &mdash; the trigger looks like routine <code>WmiPrvSE.exe</code> activity.</li>
+      <li><strong>VBS launcher chunked into 8-character concatenated strings.</strong> Static string searches for <code>pwned</code>, <code>Pwn3d</code>, or interpreter names cannot match.</li>
+      <li><strong>Backdated persistence files.</strong> Timestamps set to before the lab started, so files don't stand out in <code>Get-ChildItem | Sort LastWriteTime</code>.</li>
+      <li><strong>Multiple redundant layers.</strong> Even a defender that catches 8 out of 10 still loses &mdash; one trigger surviving is enough.</li>
+      <li><strong>Hidden + System file attributes</strong> on dropped files, plus realistic-looking paths like <code>$APPDATA\Microsoft\Internet Explorer\UserData\iehelper.vbs</code>.</li>
+    </ul>
+  </div>
+
+  <div class="smartbox blue">
+    <h4>B Blue &mdash; Defender</h4>
+    <ul>
+      <li><strong>Whitelist instead of blacklist.</strong> Anything not on the list of known-legitimate Windows entries gets removed. This flips the burden of proof from defender to attacker &mdash; the central reason A Red lost cleanly in Round 1.</li>
+      <li><strong>Sixteen dedicated modules.</strong> Run keys, scheduled tasks, services, startup folders, IFEO, BootExecute, PowerShell profiles, Winlogon, WMI subscriptions, AppInitDLLs, AppCertDlls, NetSh helpers, Print Monitors, LSA Security Packages, Time Providers, accessibility hijacks. Breadth of coverage that A Blue couldn't match.</li>
+      <li><strong>Quarantine instead of immediate deletion.</strong> Suspicious files are moved to a timestamped quarantine folder beside the script, preserving forensic evidence and allowing rollback for false positives.</li>
+      <li><strong><code>Repair-RegistryAclForCleanup</code> helper.</strong> Strips Deny ACEs before deletion attempts &mdash; designed specifically to defeat the kind of armoring B Red uses on their own attacker (and would defeat it, if the same team were attacking).</li>
+      <li><strong>Embedded JSON whitelist.</strong> Self-contained and portable across VMs without needing external configuration.</li>
+      <li><strong>Service whitelist preserves <code>WinDefend</code>, <code>VMTools</code>, <code>VGAuthService</code></strong> in the broad whitelist (some module ordering may impact VMware Tools temporarily, but the core defender intent is to preserve VM integration).</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ============================== TAKEAWAYS ============================== -->
+<h2>Lessons from the Showdown</h2>
+
+<div class="smartbox">
+  <h4>1. Cleverness wins at its own level &mdash; but not against a different paradigm</h4>
+  <p>
+    A Red's payload obfuscation is genuinely clever and crushes regex-based defenders. But it does <strong>nothing</strong> against B Blue's whitelist-by-name approach. The attacker's craft and the defender's detection model were operating at different layers entirely.
+  </p>
+</div>
+
+<div class="smartbox">
+  <h4>2. Breadth of awareness beats depth of obfuscation</h4>
+  <p>
+    A defender that knows about <em>every</em> place persistence can hide beats an attacker who hides cleverly in a place the defender already searches &mdash; and beats an attacker who uses fewer hiding places (even if those places are well-armored). B Blue's 16 modules vs A Blue's 4 made all the difference.
+  </p>
+</div>
+
+<div class="smartbox">
+  <h4>3. Artifact deletion is not defense</h4>
+  <p>
+    A Blue's watchdog never actually removes B Red's persistence. It just keeps wiping the output file. The persistence is still planted, would survive any number of reboots, and would re-emerge instantly if the watchdog ever stopped running. Real defense is rooting out the persistence; suppressing the symptom is denial of evidence.
+  </p>
+</div>
+
+<div class="smartbox">
+  <h4>4. ACL armoring is the attacker's strongest move</h4>
+  <p>
+    Once a persistence key is owned by TrustedInstaller and Deny-ACL'd against Everyone, even an elevated administrator's <code>Remove-Item</code> fails. A defender that doesn't explicitly enable <code>SeTakeOwnershipPrivilege</code>, take ownership, and rewrite the ACL <em>cannot</em> remove these entries. Most defenders don't, and they lose.
+  </p>
+</div>
+
+<div class="smartbox">
+  <h4>5. SilentProcessExit is the IFEO trick everyone should know about</h4>
+  <p>
+    Standard IFEO Debugger hijacks are well-detected. SilentProcessExit fires after the target process exits normally, so the system functions correctly and the trigger looks like a routine system event. It's safer (no broken logon) <em>and</em> stealthier &mdash; a rare combination.
+  </p>
+</div>
+
+<!-- ============================== METHOD ============================== -->
+<h2>Methodology</h2>
+
+<p>
+  Two cross-team rounds were planned and executed:
+</p>
+<ol>
+  <li><strong>Round 1:</strong> A Red attacker against B Blue defender.</li>
+  <li><strong>Round 2:</strong> B Red attacker against A Blue defender.</li>
+</ol>
+
+<p>
+  Each round was run on a Windows VM in VMware, started from a <code>clean-baseline</code> snapshot. Scripts were executed in elevated PowerShell. After running attacker then defender, the VM was rebooted and <code>C:\Users\Public\Documents\pwned.txt</code> was checked. Snapshots were used to revert between rounds.
+</p>
+
+<p>
+  Round 1 result observed in the lab matched the static code analysis prediction exactly. Round 2 result also matched the prediction, with the additional observed nuance that A Blue's optional Watchdog Option 2 produces an oscillating &mdash; rather than persistent &mdash; <code>pwned.txt</code> existence, because it deletes the file in a 30-second loop without removing the underlying persistence.
+</p>
+
+<div class="footnote">
+  <p>
+  </p>
+</div>
+
+</body>
+</html>
